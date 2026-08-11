@@ -1,12 +1,13 @@
-import { mkdtempSync, readdirSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { spoolDirs, type SpoolDirs } from '../src/paths';
 import { ensureDirs, readSessions, removeSession, writeSession } from '../src/spool/persist';
 import { reduceAll } from '../src/store/reduce';
 import type { Session, SpoolEvent } from '../src/events/types';
 
+let home: string;
 let dirs: SpoolDirs;
 
 const session = (id: string): Session => ({
@@ -15,8 +16,13 @@ const session = (id: string): Session => ({
 });
 
 beforeEach(async () => {
-  dirs = spoolDirs(mkdtempSync(join(tmpdir(), 'koh-')));
+  home = mkdtempSync(join(tmpdir(), 'koh-'));
+  dirs = spoolDirs(home);
   await ensureDirs(dirs);
+});
+
+afterEach(() => {
+  rmSync(home, { recursive: true, force: true });
 });
 
 describe('persist', () => {
@@ -41,6 +47,19 @@ describe('persist', () => {
     await writeSession(dirs, session('a'));
     const back = await readSessions(dirs);
     expect(back.size).toBe(1);
+  });
+
+  it('ignore un fichier de session partiellement conforme', async () => {
+    const { writeFile } = await import('node:fs/promises');
+    await writeFile(
+      join(dirs.sessions, 'incomplet.json'),
+      JSON.stringify({ id: 'b', status: 'idle', lastEventAt: 1 }),
+    );
+    await writeSession(dirs, session('a'));
+    const back = await readSessions(dirs);
+    expect(back.size).toBe(1);
+    expect(back.get('a')).toEqual(session('a'));
+    expect(back.has('b')).toBe(false);
   });
 
   it('converge : deux ordres de lecture donnent le même état', () => {

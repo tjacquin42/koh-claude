@@ -1,7 +1,25 @@
 import { mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SpoolDirs } from '../paths';
-import type { Session } from '../events/types';
+import type { Origin, Session, Status } from '../events/types';
+
+// Record<Status, true> et Record<Origin, true> : si l'union gagne un membre côté
+// events/types.ts sans que ces tables soient mises à jour, la compilation échoue —
+// la garde de type ne peut pas dériver silencieusement du contrat de Session.
+const STATUSES: Record<Status, true> = {
+  running: true,
+  waiting: true,
+  done_unseen: true,
+  idle: true,
+  stale: true,
+};
+const ORIGINS: Record<Origin, true> = {
+  vscode: true,
+  terminal: true,
+  desktop: true,
+  sdk: true,
+  unknown: true,
+};
 
 export async function ensureDirs(dirs: SpoolDirs): Promise<void> {
   for (const dir of [dirs.events, dirs.sessions, dirs.requests, dirs.rejected, dirs.backups]) {
@@ -31,7 +49,17 @@ export async function removeSession(dirs: SpoolDirs, id: string): Promise<void> 
 function isSession(v: unknown): v is Session {
   if (typeof v !== 'object' || v === null) return false;
   const o = v as Record<string, unknown>;
-  return typeof o['id'] === 'string' && typeof o['status'] === 'string' && typeof o['lastEventAt'] === 'number';
+  return (
+    typeof o['id'] === 'string' &&
+    typeof o['cwd'] === 'string' &&
+    typeof o['project'] === 'string' &&
+    typeof o['origin'] === 'string' &&
+    o['origin'] in ORIGINS &&
+    typeof o['status'] === 'string' &&
+    o['status'] in STATUSES &&
+    typeof o['toolCount'] === 'number' &&
+    typeof o['lastEventAt'] === 'number'
+  );
 }
 
 export async function readSessions(dirs: SpoolDirs): Promise<Map<string, Session>> {

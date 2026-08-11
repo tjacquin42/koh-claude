@@ -1,8 +1,8 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readdirSync, readFileSync, chmodSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, chmodSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 const BRIDGE = join(process.cwd(), 'bin/koh-claude-bridge');
 let home: string;
@@ -19,6 +19,10 @@ function run(event: string, stdin: string, env: Record<string, string> = {}): nu
 
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), 'koh-'));
+});
+
+afterEach(() => {
+  rmSync(home, { recursive: true, force: true });
 });
 
 describe('koh-claude-bridge', () => {
