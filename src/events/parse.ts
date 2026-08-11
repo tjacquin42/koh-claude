@@ -1,0 +1,64 @@
+import { HOOK_EVENTS, LOCAL_EVENTS, type EventName, type SpoolEvent } from './types';
+
+const NAMES: readonly string[] = [...HOOK_EVENTS, ...LOCAL_EVENTS];
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+function str(v: unknown): string | undefined {
+  return typeof v === 'string' && v.length > 0 ? v : undefined;
+}
+
+function isEventName(v: string): v is EventName {
+  return NAMES.includes(v);
+}
+
+/** Première cible lisible d'un appel d'outil, tronquée pour l'affichage. */
+function targetOf(toolInput: Record<string, unknown> | undefined): string | undefined {
+  if (toolInput === undefined) return undefined;
+  for (const key of ['file_path', 'command', 'path', 'pattern', 'url']) {
+    const value = str(toolInput[key]);
+    if (value !== undefined) return value.length > 80 ? `${value.slice(0, 79)}…` : value;
+  }
+  return undefined;
+}
+
+/**
+ * Valide un fichier de spool. Retourne `undefined` pour tout ce qui n'est pas
+ * exploitable — un payload d'une future version de Claude Code ne doit jamais
+ * faire tomber l'extension.
+ */
+export function parseSpoolFile(raw: string): SpoolEvent | undefined {
+  let json: unknown;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (!isRecord(json)) return undefined;
+
+  const event = str(json['event']);
+  const at = typeof json['at'] === 'number' && Number.isFinite(json['at']) ? json['at'] : undefined;
+  if (event === undefined || at === undefined || !isEventName(event)) return undefined;
+
+  const payload = isRecord(json['payload']) ? json['payload'] : {};
+  const sessionId = str(payload['session_id']);
+  const cwd = str(payload['cwd']);
+  if (sessionId === undefined || cwd === undefined) return undefined;
+
+  const toolInput = isRecord(payload['tool_input']) ? payload['tool_input'] : undefined;
+
+  return {
+    event,
+    at,
+    entrypoint: str(json['entrypoint']) ?? '',
+    termProgram: str(json['termProgram']) ?? '',
+    sessionId,
+    cwd,
+    transcriptPath: str(payload['transcript_path']),
+    toolName: str(payload['tool_name']),
+    toolTarget: targetOf(toolInput),
+    message: str(payload['message']),
+  };
+}
