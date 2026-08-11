@@ -31,6 +31,14 @@ describe('labels', () => {
     expect(formatTokens(1_500_000)).toBe('1.5M');
   });
 
+  it('ne produit jamais « 1000k » aux frontières', () => {
+    expect(formatTokens(999)).toBe('999');
+    expect(formatTokens(1_000)).toBe('1k');
+    expect(formatTokens(999_499)).toBe('999k');
+    expect(formatTokens(999_500)).toBe('1.0M');
+    expect(formatTokens(1_000_000)).toBe('1.0M');
+  });
+
   it('étiquette la session avec sa branche', () => {
     expect(sessionLabel(s)).toBe('feat-seo');
     expect(sessionLabel({ ...s, branch: undefined })).toBe('pity-tidy');

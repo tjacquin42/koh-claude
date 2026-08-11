@@ -25,7 +25,9 @@ export function formatAge(ms: number): string {
 
 export function formatTokens(n: number): string {
   if (n < 1_000) return String(n);
-  if (n < 1_000_000) return `${Math.round(n / 1_000)}k`;
+  // Bascule à 999 500 et non à 1 000 000 : au-delà, l'arrondi au millier rendrait
+  // « 1000k », qui casse le format compact au lieu de passer aux millions.
+  if (n < 999_500) return `${Math.round(n / 1_000)}k`;
   return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
