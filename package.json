@@ -1,0 +1,26 @@
+{
+  "name": "koh-claude",
+  "displayName": "Koh-Claude",
+  "description": "Tableau de bord des sessions Claude Code",
+  "version": "0.1.0",
+  "publisher": "tjacquin42",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": { "vscode": "^1.94.0", "node": ">=22" },
+  "categories": ["Other"],
+  "main": "./out/extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "scripts": {
+    "build": "tsc -p .",
+    "watch": "tsc -w -p .",
+    "test": "vitest run",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.94.0",
+    "@vscode/vsce": "^3.2.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
