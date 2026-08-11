@@ -12,6 +12,10 @@ export interface DrainResult {
   rejected: number;
 }
 
+function isErrnoException(err: unknown): err is NodeJS.ErrnoException {
+  return err instanceof Error && 'code' in err;
+}
+
 /**
  * Consomme tout le spool une fois.
  *
@@ -58,7 +62,20 @@ export async function drain(dirs: SpoolDirs): Promise<DrainResult> {
       await writeSession(dirs, next);
     }
     applied += 1;
-    await unlink(path).catch(() => undefined);
+    try {
+      await unlink(path);
+    } catch (err) {
+      if (isErrnoException(err) && err.code === 'ENOENT') {
+        // déjà supprimé par une autre fenêtre : bénin, l'état est déjà écrit
+      } else {
+        // panne réelle (permission, disque plein…) : laisser le fichier en
+        // place le ferait réappliquer au prochain drain, et pour un effet
+        // cumulatif comme PostToolUse ça corromprait l'état. On l'écarte
+        // plutôt, comme un fichier illisible.
+        rejected += 1;
+        await rename(path, join(dirs.rejected, name)).catch(() => undefined);
+      }
+    }
   }
 
   return { applied, rejected };
@@ -70,9 +87,16 @@ export interface LocalEventInput {
   cwd: string;
 }
 
+// `appendLocalEvent` tourne dans le process long de l'extension : contrairement
+// au bridge, où un process équivaut à un appel, `process.pid` n'y est pas
+// unique par appel. Un compteur incrémenté en synchrone à chaque appel l'est,
+// même pour des appels concurrents sans `await` entre eux.
+let localEventSeq = 0;
+
 /** Dépose une action de l'utilisateur dans le même spool que les hooks. */
 export async function appendLocalEvent(dirs: SpoolDirs, input: LocalEventInput): Promise<void> {
   const at = Date.now();
+  const seq = (localEventSeq += 1);
   const body = JSON.stringify({
     event: input.event,
     at,
@@ -80,8 +104,8 @@ export async function appendLocalEvent(dirs: SpoolDirs, input: LocalEventInput):
     termProgram: 'vscode',
     payload: { session_id: input.sessionId, cwd: input.cwd },
   });
-  const name = `${at}-${process.pid}-${input.event}.json`;
-  const tmp = join(dirs.events, `.tmp-${process.pid}-${input.event}`);
+  const name = `${at}-${process.pid}-${seq}-${input.event}.json`;
+  const tmp = join(dirs.events, `.tmp-${process.pid}-${seq}-${input.event}`);
   await writeFile(tmp, body, 'utf8');
   await rename(tmp, join(dirs.events, name));
 }
@@ -99,7 +123,14 @@ export class SpoolWatcher {
 
   start(): void {
     void this.tick();
-    this.watcher = watch(this.dirs.events, () => this.schedule());
+    try {
+      this.watcher = watch(this.dirs.events, () => this.schedule());
+    } catch {
+      // Le dossier n'existe pas encore (ex : première ouverture avant tout
+      // hook). drain() tolère déjà son absence ; le filet de 5s ci-dessous
+      // suffit à prendre le relais dès qu'il apparaîtra.
+      this.watcher = undefined;
+    }
     // Filet : fs.watch peut manquer des événements sur certains volumes.
     this.timer = setInterval(() => this.schedule(), 5_000);
   }
