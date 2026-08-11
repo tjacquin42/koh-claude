@@ -3,7 +3,7 @@ import { appendFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { readTranscript } from '../src/transcript/reader';
+import { readTranscript, type TranscriptStats } from '../src/transcript/reader';
 
 let dir: string;
 let file: string;
@@ -71,5 +71,24 @@ describe('readTranscript', () => {
   it('retourne un état vide si le fichier n existe pas', async () => {
     const stats = await readTranscript('/nexiste/pas.jsonl');
     expect(stats).toEqual({ offset: 0, input: 0, output: 0, cacheRead: 0, assistantTurns: 0 });
+  });
+
+  it('repart de zéro si le fichier a été remplacé par un plus court (rotation / nouvelle session)', async () => {
+    const stale: TranscriptStats = {
+      offset: 5000,
+      input: 99999,
+      output: 88888,
+      cacheRead: 77777,
+      assistantTurns: 42,
+      branch: 'old-branch',
+      entrypoint: 'old-entrypoint',
+    };
+    await writeFile(file, assistant(10, 20) + assistant(5, 5));
+    const stats = await readTranscript(file, stale);
+    expect(stats.input).toBe(15);
+    expect(stats.output).toBe(25);
+    expect(stats.assistantTurns).toBe(2);
+    expect(stats.branch).toBe('feat-seo');
+    expect(stats.offset).toBeLessThan(stale.offset);
   });
 });

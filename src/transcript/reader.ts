@@ -26,16 +26,22 @@ function isRecord(v: unknown): v is Record<string, unknown> {
  * passage suivant plutôt que comptée à moitié.
  */
 export async function readTranscript(path: string, from?: TranscriptStats): Promise<TranscriptStats> {
-  const start = from ?? EMPTY;
+  const requested = from ?? EMPTY;
   let handle;
   try {
     handle = await open(path, 'r');
   } catch {
-    return { ...start };
+    return { ...requested };
   }
 
   try {
     const { size } = await handle.stat();
+    if (size === requested.offset) return { ...requested };
+    // Le fichier est plus court que l'offset mémorisé : ce n'est plus le
+    // transcript qu'on suivait (remplacé, ou nouvelle session qui a repris
+    // le même chemin). On oublie l'état précédent et on relit depuis le
+    // début, pour ne pas garder des totaux périmés indéfiniment.
+    const start = size < requested.offset ? EMPTY : requested;
     if (size <= start.offset) return { ...start, offset: Math.min(start.offset, size) };
 
     const length = size - start.offset;
