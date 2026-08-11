@@ -1,0 +1,15 @@
+{
+  "event": "UserPromptSubmit",
+  "at": 1700000002000,
+  "entrypoint": "sdk-cli",
+  "termProgram": "",
+  "payload": {
+    "session_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "transcript_path": "/Users/dev/.claude/projects/-Users-dev-projet/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jsonl",
+    "cwd": "/Users/dev/projet",
+    "prompt_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    "permission_mode": "default",
+    "hook_event_name": "UserPromptSubmit",
+    "prompt": "Lis le fichier NOTES.md et réponds uniquement par son premier mot."
+  }
+}

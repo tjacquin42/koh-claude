@@ -1,0 +1,25 @@
+#!/bin/zsh -f
+# koh-claude-bridge — dépose le payload d'un hook Claude Code dans le spool.
+# Ne parse rien. N'écrit jamais sur stdout. Sort toujours en 0.
+# -f empêche les fichiers de démarrage de l'utilisateur de polluer le protocole des hooks.
+emulate -L zsh
+zmodload zsh/datetime 2>/dev/null || true
+
+EVENT="${1:-unknown}"
+DIR="${KOH_CLAUDE_HOME:-$HOME/.koh-claude}/events"
+[[ -d "$DIR" ]] || exit 0
+
+STAMP="$(printf '%.0f' $(( ${EPOCHREALTIME:-0} * 1000 )) 2>/dev/null)"
+[[ -n "$STAMP" && "$STAMP" != "0" ]] || STAMP="$(/bin/date +%s)000"
+
+TMP="$DIR/.tmp-$$-$EVENT"
+OUT="$DIR/$STAMP-$$-$EVENT.json"
+
+{
+  printf '{"event":"%s","at":%s,"entrypoint":"%s","termProgram":"%s","payload":' \
+    "$EVENT" "$STAMP" "${CLAUDE_CODE_ENTRYPOINT:-}" "${TERM_PROGRAM:-}"
+  /bin/cat
+  printf '}\n'
+} > "$TMP" 2>/dev/null && /bin/mv -f "$TMP" "$OUT" 2>/dev/null
+
+exit 0
