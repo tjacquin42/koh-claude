@@ -14,15 +14,23 @@ function isEventName(v: string): v is EventName {
   return NAMES.includes(v);
 }
 
+// Liste blanche, pas liste noire : les session_id réels observés sont des
+// UUID (chiffres hexadécimaux et tirets). N'importe quel autre caractère —
+// `/`, `\`, un octet NUL, un espace, un caractère exotique — est refusé par
+// construction, sans qu'il faille l'énumérer un par un. Une liste de
+// caractères interdits en oublie toujours un (M7 initial ne bloquait que
+// `/`, `\`, `.` et `..` : un octet NUL passait).
+const SAFE_SESSION_ID = /^[A-Za-z0-9._-]+$/;
+
 /**
  * `writeSession`/`readSession` utilisent `session_id` tel quel dans un nom de
- * fichier (`sessions/<id>.json`, `.tmp-<id>-<pid>-<seq>`) : un id qui contient
- * un séparateur de chemin ou qui vaut `.`/`..` produit un chemin invalide, donc
- * un `ENOENT` à l'écriture — une donnée mal formée ne doit jamais faire lever
- * une écriture en aval, elle doit être refusée ici, à la frontière.
+ * fichier (`sessions/<id>.json`, `.tmp-<id>-<pid>-<seq>`) : un id inutilisable
+ * comme composant de chemin produit un `ENOENT` à l'écriture — une donnée mal
+ * formée ne doit jamais faire lever une écriture en aval, elle doit être
+ * refusée ici, à la frontière.
  */
 function isValidSessionId(id: string): boolean {
-  return id !== '.' && id !== '..' && !id.includes('/') && !id.includes('\\');
+  return id !== '.' && id !== '..' && SAFE_SESSION_ID.test(id);
 }
 
 /** Première cible lisible d'un appel d'outil, tronquée pour l'affichage. */
