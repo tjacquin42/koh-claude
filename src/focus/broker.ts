@@ -6,6 +6,7 @@ import * as vscode from 'vscode';
 import type { SpoolDirs } from '../paths';
 import type { Session } from '../events/types';
 import { claims } from './claims';
+import { sessionLabel } from '../ui/labels';
 import { GUARD_TIMEOUT_MS, ReentrantGuard } from '../lib/reentrant-guard';
 
 const FOCUS_COMMAND = 'claude-vscode.editor.openLast';
@@ -45,7 +46,7 @@ export class FocusBroker {
     const seq = (this.requestSeq += 1);
     const name = join(this.dirs.requests, `focus-${s.id}.json`);
     const tmp = join(this.dirs.requests, `.tmp-${s.id}-${process.pid}-${seq}`);
-    const body = JSON.stringify({ sessionId: s.id, cwd: s.cwd, at: Date.now() });
+    const body = JSON.stringify({ sessionId: s.id, cwd: s.cwd, label: sessionLabel(s), at: Date.now() });
     // Fichier temporaire puis renommage : une autre fenêtre réveillée par le
     // même fs.watch ne doit jamais lire un fichier partiel.
     await writeFile(tmp, body, 'utf8');
@@ -153,7 +154,13 @@ export class FocusBroker {
         const cwd = (parsed as { cwd?: unknown }).cwd;
         if (typeof cwd !== 'string' || !claims(folders, cwd)) continue;
         await unlink(path);
-        await vscode.window.showInformationMessage('Koh-Claude : session demandée');
+        const rawLabel = (parsed as { label?: unknown }).label;
+        const label = typeof rawLabel === 'string' && rawLabel.length > 0 ? rawLabel : 'session';
+        // `void`, jamais `await` : ce thenable ne se règle qu'à la fermeture
+        // du toast (clic ou disparition), parfois des secondes plus tard. Le
+        // focus est le geste central du clic (spec §6) ; le message n'est
+        // qu'une information, il ne doit jamais le retarder.
+        void vscode.window.showInformationMessage(`Koh-Claude : session « ${label} » demandée`);
         await this.focusHere();
       } catch {
         continue;
