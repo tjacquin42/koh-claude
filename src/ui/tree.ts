@@ -24,7 +24,13 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode> {
   private readonly emitter = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this.emitter.event;
   private sessions: Session[] = [];
-  private hooksInstalled = true;
+
+  // Reçoit la vérification plutôt que de la posséder : lire settings.json
+  // toutes les REFRESH_MS pour un cas rare (aucune session) coûterait en
+  // permanence. Consultée seulement quand ce nœud vide s'apprête à
+  // s'afficher (I5) — jamais mise en cache au-delà d'un seul appel, pour
+  // qu'une installation faite entre-temps se voie sans recharger la fenêtre.
+  constructor(private readonly checkHooksInstalled: () => Promise<boolean>) {}
 
   setSessions(map: Map<string, Session>): void {
     const now = Date.now();
@@ -34,19 +40,15 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode> {
     this.emitter.fire();
   }
 
-  setHooksInstalled(installed: boolean): void {
-    this.hooksInstalled = installed;
-    this.emitter.fire();
-  }
-
-  getChildren(node?: TreeNode): TreeNode[] {
+  async getChildren(node?: TreeNode): Promise<TreeNode[]> {
     if (node === undefined) {
-      if (!this.hooksInstalled) {
-        return [
-          { kind: 'empty', message: 'Hooks non installés — cliquez pour les installer', action: 'install' },
-        ];
-      }
       if (this.sessions.length === 0) {
+        const installed = await this.checkHooksInstalled();
+        if (!installed) {
+          return [
+            { kind: 'empty', message: 'Hooks non installés — cliquez pour les installer', action: 'install' },
+          ];
+        }
         return [{ kind: 'empty', message: 'Aucune session Claude Code active' }];
       }
       const byProject = new Map<string, Session[]>();

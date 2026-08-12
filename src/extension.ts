@@ -10,6 +10,7 @@ import { withTokens } from './transcript/tokens';
 import { SessionsTree } from './ui/tree';
 import { StatusSummary } from './ui/statusbar';
 import { FocusBroker } from './focus/broker';
+import { sessionsToAcknowledge } from './focus/claims';
 import { countKohEntries } from './hooks/installer';
 import type { Session } from './events/types';
 import { GUARD_TIMEOUT_MS, ReentrantGuard } from './lib/reentrant-guard';
@@ -20,7 +21,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const dirs = spoolDirs(kohClaudeHome());
   await ensureDirs(dirs);
 
-  const tree = new SessionsTree();
+  // Relu à chaque fois que l'arbre s'apprête à afficher son nœud vide (voir
+  // SessionsTree), jamais mis en cache ici : le coût (une lecture de fichier)
+  // n'est payé que dans le cas rare où il n'y a aucune session à montrer.
+  async function checkHooksInstalled(): Promise<boolean> {
+    try {
+      const raw = await readFile(join(homedir(), '.claude', 'settings.json'), 'utf8');
+      return countKohEntries(JSON.parse(raw)) > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  const tree = new SessionsTree(checkHooksInstalled);
   const status = new StatusSummary();
   const broker = new FocusBroker(dirs);
   const transcripts = new Map<string, TranscriptStats>();
@@ -86,13 +99,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   watcher.start();
   broker.start();
 
-  // Acquitte les sessions terminées quand la vue devient visible dans cette fenêtre.
+  function workspaceFolders(): string[] {
+    return (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
+  }
+
+  // Acquitte les sessions terminées quand la vue devient visible dans cette
+  // fenêtre — mais seulement celles que cette fenêtre revendique (spec §5) :
+  // sans le filtre par claims(), regarder la vue depuis n'importe quel projet
+  // effaçait le « terminé non lu » de tous les projets de toutes les fenêtres.
   const onVisible = view.onDidChangeVisibility(async (e) => {
     if (!e.visible) return;
-    for (const s of (await readSessions(dirs)).values()) {
-      if (s.status === 'done_unseen') {
-        await appendLocalEvent(dirs, { event: 'Ack', sessionId: s.id, cwd: s.cwd });
-      }
+    const sessions = await readSessions(dirs);
+    for (const s of sessionsToAcknowledge(sessions.values(), workspaceFolders())) {
+      await appendLocalEvent(dirs, { event: 'Ack', sessionId: s.id, cwd: s.cwd });
     }
   });
 
@@ -111,7 +130,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     { dispose: () => broker.stop() },
     { dispose: () => clearInterval(ticker) },
     vscode.commands.registerCommand('kohClaude.refresh', () => void render()),
-    vscode.commands.registerCommand('kohClaude.focusSession', (s: Session) => void broker.request(s).catch(() => undefined)),
+    vscode.commands.registerCommand('kohClaude.focusSession', (s: Session) => {
+      // Le clic acquitte inconditionnellement (spec §5 : « clic sur la
+      // session »), indépendamment de claims() — qui ne gouverne que
+      // l'acquittement passif à l'affichage de la vue, ci-dessus. Un Ack sur
+      // une session déjà purgée ou inconnue n'en recrée pas une (I2, reduce()
+      // ignore un Ack sans session préalable) : aucune vérification d'ordre
+      // n'est nécessaire ici.
+      void appendLocalEvent(dirs, { event: 'Ack', sessionId: s.id, cwd: s.cwd }).catch(() => undefined);
+      void broker.request(s).catch(() => undefined);
+    }),
     vscode.commands.registerCommand('kohClaude.installHooks', () => {
       const terminal = vscode.window.createTerminal('Koh-Claude');
       terminal.sendText(`node "${installScript}"`);
@@ -123,17 +151,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       terminal.show();
     }),
   );
-
-  // État initial : hooks installés ou non. Les deux commandes ci-dessus passent par
-  // un terminal externe, qui ne renvoie aucun signal à l'extension à la fin de la
-  // commande : refléter l'état après coup demanderait de surveiller settings.json,
-  // hors périmètre de cette tâche.
-  try {
-    const raw = await readFile(join(homedir(), '.claude', 'settings.json'), 'utf8');
-    tree.setHooksInstalled(countKohEntries(JSON.parse(raw)) > 0);
-  } catch {
-    tree.setHooksInstalled(false);
-  }
 
   await render();
 }
