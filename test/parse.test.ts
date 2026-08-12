@@ -73,4 +73,65 @@ describe('parseSpoolFile', () => {
     expect(parseSpoolFile('{"event":"Stop","at":1,"payload":{"session_id":"a b","cwd":"/x"}}')).toBeUndefined();
     expect(parseSpoolFile('{"event":"Stop","at":1,"payload":{"session_id":"a✨b","cwd":"/x"}}')).toBeUndefined();
   });
+
+  // M2, corrigé à la frontière plutôt que chez un lecteur : targetOf() tronquait
+  // déjà tool_input.command à 80 caractères mais ne normalisait pas les blancs,
+  // et pendingPermission.summary (store/reduce.ts) partage exactement cette
+  // même source (ev.toolTarget) — un second lecteur qui aurait fallu penser à
+  // corriger séparément si la normalisation était restée côté affichage.
+  it("normalise les blancs (dont les retours à la ligne) d'une commande Bash multi-ligne extraite de tool_input", () => {
+    const raw = JSON.stringify({
+      event: 'PreToolUse',
+      at: 1,
+      payload: {
+        session_id: 's',
+        cwd: '/x',
+        tool_name: 'Bash',
+        tool_input: { command: 'node -e "\nconst fs = require(\'fs\')\nconsole.log(fs)"' },
+      },
+    });
+    const ev = parseSpoolFile(raw);
+    expect(ev?.toolTarget).toBe('node -e " const fs = require(\'fs\') console.log(fs)"');
+  });
+
+  it('normalise la même commande multi-ligne quand elle arrive via un PermissionRequest (repro exacte du défaut observé)', () => {
+    const raw = JSON.stringify({
+      event: 'PermissionRequest',
+      at: 1,
+      payload: {
+        session_id: 's',
+        cwd: '/x',
+        tool_name: 'Bash',
+        tool_input: { command: "node -e \"\nconst fs=require('fs')\n…\"" },
+      },
+    });
+    const ev = parseSpoolFile(raw);
+    expect(ev?.toolTarget).not.toMatch(/\n/);
+    expect(ev?.toolTarget).toBe("node -e \" const fs=require('fs') …\"");
+  });
+
+  it('normalise aussi les blancs du champ message (second repli de pendingPermission.summary)', () => {
+    const raw = JSON.stringify({
+      event: 'PermissionRequest',
+      at: 1,
+      payload: { session_id: 's', cwd: '/x', message: 'ligne 1\nligne 2' },
+    });
+    const ev = parseSpoolFile(raw);
+    expect(ev?.message).toBe('ligne 1 ligne 2');
+  });
+
+  it("ignore une valeur de tool_input qui ne contient que des blancs et retombe sur la clé suivante", () => {
+    const raw = JSON.stringify({
+      event: 'PreToolUse',
+      at: 1,
+      payload: {
+        session_id: 's',
+        cwd: '/x',
+        tool_name: 'Read',
+        tool_input: { file_path: '   ', path: '/real/path' },
+      },
+    });
+    const ev = parseSpoolFile(raw);
+    expect(ev?.toolTarget).toBe('/real/path');
+  });
 });

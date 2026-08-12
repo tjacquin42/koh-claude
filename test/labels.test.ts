@@ -48,19 +48,6 @@ describe('labels', () => {
     expect(sessionDescription(s, 0)).toBe('Edit nuxt.config.ts');
   });
 
-  it('normalise les retours à la ligne d une commande Bash multi-ligne (M2)', () => {
-    // Donnée réelle observée : basename() ne coupe que sur `/`, une commande
-    // multi-ligne sans slash lui traverse donc intacte, retours à la ligne
-    // compris — une description de TreeItem est censée tenir sur une ligne.
-    const multiline: Session = {
-      ...s,
-      currentAction: { tool: 'Bash', target: 'node -e "\nconst fs = require(\'fs\')\nconsole.log(fs)"' },
-    };
-    expect(sessionDescription(multiline, 0)).toBe(
-      'Bash node -e " const fs = require(\'fs\') console.log(fs)"',
-    );
-  });
-
   it('décrit la permission attendue en priorité', () => {
     const waiting: Session = {
       ...s, status: 'waiting', pendingPermission: { tool: 'Bash', summary: 'rm -rf dist' },

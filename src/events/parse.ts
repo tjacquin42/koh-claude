@@ -10,6 +10,27 @@ function str(v: unknown): string | undefined {
   return typeof v === 'string' && v.length > 0 ? v : undefined;
 }
 
+/**
+ * Réduit toute suite de blancs (espaces, tabulations, retours à la ligne) à
+ * un seul espace. Toute valeur destinée à l'affichage passe par ici, à la
+ * frontière où elle entre dans le système — jamais chez l'un de ses
+ * lecteurs : `currentAction.target` et `pendingPermission.summary`
+ * (store/reduce.ts) partagent la même source (`ev.toolTarget`), et
+ * `ev.message` alimente aussi ce second champ en repli. Normaliser une fois
+ * ici couvre les deux, et tout futur lecteur, sans qu'il ait à y penser.
+ */
+function normalizeWhitespace(s: string): string {
+  return s.replace(/\s+/g, ' ').trim();
+}
+
+/** `str()` puis normalisation des blancs ; vide après normalisation = absent. */
+function displayText(v: unknown): string | undefined {
+  const s = str(v);
+  if (s === undefined) return undefined;
+  const normalized = normalizeWhitespace(s);
+  return normalized.length > 0 ? normalized : undefined;
+}
+
 function isEventName(v: string): v is EventName {
   return NAMES.includes(v);
 }
@@ -33,12 +54,13 @@ function isValidSessionId(id: string): boolean {
   return id !== '.' && id !== '..' && SAFE_SESSION_ID.test(id);
 }
 
-/** Première cible lisible d'un appel d'outil, tronquée pour l'affichage. */
+/** Première cible lisible d'un appel d'outil, normalisée puis tronquée pour l'affichage. */
 function targetOf(toolInput: Record<string, unknown> | undefined): string | undefined {
   if (toolInput === undefined) return undefined;
   for (const key of ['file_path', 'command', 'path', 'pattern', 'url']) {
-    const value = str(toolInput[key]);
-    if (value !== undefined) return value.length > 80 ? `${value.slice(0, 79)}…` : value;
+    const value = displayText(toolInput[key]);
+    if (value === undefined) continue;
+    return value.length > 80 ? `${value.slice(0, 79)}…` : value;
   }
   return undefined;
 }
@@ -78,6 +100,6 @@ export function parseSpoolFile(raw: string): SpoolEvent | undefined {
     transcriptPath: str(payload['transcript_path']),
     toolName: str(payload['tool_name']),
     toolTarget: targetOf(toolInput),
-    message: str(payload['message']),
+    message: displayText(payload['message']),
   };
 }
