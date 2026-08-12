@@ -12,8 +12,15 @@ DIR="${KOH_CLAUDE_HOME:-$HOME/.koh-claude}/events"
 STAMP="$(printf '%.0f' $(( ${EPOCHREALTIME:-0} * 1000 )) 2>/dev/null)"
 [[ -n "$STAMP" && "$STAMP" != "0" ]] || STAMP="$(/bin/date +%s)000"
 
-TMP="$DIR/.tmp-$$-$EVENT"
-OUT="$DIR/$STAMP-$$-$EVENT.json"
+# Un pid non zero-paddé trie mal lexicographiquement au sein d'une même
+# milliseconde ("9" > "10" en tri de chaînes, alors que 9 < 10) : deux
+# événements posés à la même milliseconde par des process d'id de largeurs
+# différentes pourraient s'appliquer dans le mauvais ordre. Largeur fixe,
+# assez large pour n'être jamais atteinte par un vrai pid.
+PID="$(printf '%010d' "$$")"
+
+TMP="$DIR/.tmp-$PID-$EVENT"
+OUT="$DIR/$STAMP-$PID-$EVENT.json"
 
 {
   printf '{"event":"%s","at":%s,"entrypoint":"%s","termProgram":"%s","payload":' \

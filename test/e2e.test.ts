@@ -140,7 +140,7 @@ describe('bout en bout : installer → bridge → réduction → désinstaller',
     const dropped = readdirSync(dirs.events).filter((f) => f.endsWith('.json'));
     expect(dropped).toHaveLength(3);
 
-    const res = await drain(dirs); // chemin de production : le même que SpoolWatcher.tick()
+    const res = await drain(dirs, Date.now()); // chemin de production : le même que SpoolWatcher.tick()
     expect(res.applied).toBe(3);
     expect(res.rejected).toBe(0);
 

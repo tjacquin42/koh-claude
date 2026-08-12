@@ -43,6 +43,20 @@ describe('koh-claude-bridge', () => {
     });
   });
 
+  it('zero-padde le pid dans le nom de fichier, pour que le tri lexicographique ne dépende pas de sa largeur', () => {
+    // Deux événements de la même milliseconde ne sont distingués que par le
+    // tri du nom de fichier une fois le champ horodatage égal ; un pid non
+    // zero-paddé trie "9" après "10" alors que 9 < 10. Un pid de largeur fixe
+    // ferme cette ambiguïté, quelle que soit la valeur réelle du pid.
+    mkdirSync(join(home, 'events'), { recursive: true });
+    run('Stop', '{"session_id":"abc","cwd":"/tmp/p"}');
+    const files = readdirSync(join(home, 'events')).filter((f) => f.endsWith('.json'));
+    expect(files).toHaveLength(1);
+    const match = /^\d{13}-(\d+)-Stop\.json$/.exec(files[0]!);
+    expect(match).not.toBeNull();
+    expect(match?.[1]).toHaveLength(10);
+  });
+
   it('ne laisse aucun fichier temporaire', () => {
     mkdirSync(join(home, 'events'), { recursive: true });
     run('Stop', '{"session_id":"abc","cwd":"/tmp/p"}');
