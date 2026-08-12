@@ -3,10 +3,10 @@ import { formatAge, formatTokens, sessionDescription, sessionLabel, statusLabel 
 import type { Session } from '../src/events/types';
 
 const s: Session = {
-  id: 'abc', cwd: '/Users/jack/DEV/pity-tidy/.worktrees/feat-seo',
-  project: 'pity-tidy', branch: 'feat-seo', origin: 'vscode',
+  id: 'abc', cwd: '/Users/dev/projet/.worktrees/feat-seo',
+  project: 'projet', branch: 'feat-seo', origin: 'vscode',
   status: 'running', toolCount: 47, lastEventAt: 0,
-  currentAction: { tool: 'Edit', target: '/Users/jack/DEV/pity-tidy/web/nuxt.config.ts' },
+  currentAction: { tool: 'Edit', target: '/Users/dev/projet/web/nuxt.config.ts' },
   tokens: { input: 128_000, output: 4_200 },
 };
 
@@ -41,11 +41,24 @@ describe('labels', () => {
 
   it('étiquette la session avec sa branche', () => {
     expect(sessionLabel(s)).toBe('feat-seo');
-    expect(sessionLabel({ ...s, branch: undefined })).toBe('pity-tidy');
+    expect(sessionLabel({ ...s, branch: undefined })).toBe('projet');
   });
 
   it('décrit l action en cours par le nom de fichier seul', () => {
     expect(sessionDescription(s, 0)).toBe('Edit nuxt.config.ts');
+  });
+
+  it('normalise les retours à la ligne d une commande Bash multi-ligne (M2)', () => {
+    // Donnée réelle observée : basename() ne coupe que sur `/`, une commande
+    // multi-ligne sans slash lui traverse donc intacte, retours à la ligne
+    // compris — une description de TreeItem est censée tenir sur une ligne.
+    const multiline: Session = {
+      ...s,
+      currentAction: { tool: 'Bash', target: 'node -e "\nconst fs = require(\'fs\')\nconsole.log(fs)"' },
+    };
+    expect(sessionDescription(multiline, 0)).toBe(
+      'Bash node -e " const fs = require(\'fs\') console.log(fs)"',
+    );
   });
 
   it('décrit la permission attendue en priorité', () => {

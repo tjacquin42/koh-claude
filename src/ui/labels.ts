@@ -36,6 +36,17 @@ export function sessionLabel(s: Session): string {
   return s.branch ?? s.project;
 }
 
+/**
+ * Réduit toute suite de blancs (espaces, tabulations, retours à la ligne) à un
+ * seul espace. Une cible venue de `tool_input.command` peut être une commande
+ * multi-ligne : `basename()` ne coupe que sur `/`, elle la laisse donc
+ * traverser intacte jusqu'à l'affichage, où une description de `TreeItem` est
+ * censée tenir sur une seule ligne.
+ */
+function normalizeWhitespace(s: string): string {
+  return s.replace(/\s+/g, ' ').trim();
+}
+
 export function sessionDescription(s: Session, now: number): string {
   if (s.pendingPermission !== undefined) {
     return `permission : ${s.pendingPermission.summary || s.pendingPermission.tool}`;
@@ -44,7 +55,7 @@ export function sessionDescription(s: Session, now: number): string {
     const target = s.currentAction.target;
     return target === undefined
       ? s.currentAction.tool
-      : `${s.currentAction.tool} ${basename(target)}`;
+      : `${s.currentAction.tool} ${normalizeWhitespace(basename(target))}`;
   }
   return `${statusLabel(s.status)} · ${formatAge(now - s.lastEventAt)}`;
 }
