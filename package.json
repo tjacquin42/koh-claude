@@ -10,6 +10,29 @@
   "categories": ["Other"],
   "main": "./out/extension.js",
   "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        { "id": "koh-claude", "title": "Koh-Claude", "icon": "resources/island.svg" }
+      ]
+    },
+    "views": {
+      "koh-claude": [
+        { "id": "kohClaude.sessions", "name": "Sessions", "icon": "resources/island.svg" }
+      ]
+    },
+    "commands": [
+      { "command": "kohClaude.refresh", "title": "Koh-Claude : rafraîchir", "icon": "$(refresh)" },
+      { "command": "kohClaude.focusSession", "title": "Koh-Claude : aller à la session" },
+      { "command": "kohClaude.installHooks", "title": "Koh-Claude : installer les hooks" },
+      { "command": "kohClaude.uninstallHooks", "title": "Koh-Claude : désinstaller les hooks" }
+    ],
+    "menus": {
+      "view/title": [
+        { "command": "kohClaude.refresh", "when": "view == kohClaude.sessions", "group": "navigation" }
+      ]
+    }
+  },
   "scripts": {
     "build": "tsc -p .",
     "watch": "tsc -w -p .",
