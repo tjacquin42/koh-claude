@@ -1,0 +1,19 @@
+# vsce ne lit pas .gitignore : sans ce fichier, le .vsix embarquerait src/, test/,
+# tsconfig.json et surtout .superpowers/ (rapports de revue internes, chemins privés).
+# Liste blanche explicite : tout est exclu par défaut, seul ce dont l'extension a
+# besoin à l'exécution est réintégré.
+#
+# Chaque entrée réintégrée doit rester un motif se terminant par un segment à
+# joker (ex. `out/**`) ou un fichier exact (ex. `bin/koh-claude-bridge`), jamais
+# un nom de dossier nu (`!scripts`) : vsce le développe automatiquement en
+# `scripts/**` et réintègre alors tout le dossier, pas seulement le fichier visé —
+# ce qui aurait ramené bump-version.sh et capture-fixtures.sh dans le paquet.
+**
+
+!out/**
+!resources/**
+!bin/koh-claude-bridge
+!scripts/install-hooks.cjs
+!package.json
+!README.md
+!CHANGELOG.md

@@ -2,7 +2,15 @@
 // Installe ou désinstalle les hooks koh-claude dans ~/.claude/settings.json.
 //   node scripts/install-hooks.cjs --bridge <chemin>
 //   node scripts/install-hooks.cjs --uninstall
-const { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } = require('node:fs');
+const {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} = require('node:fs');
 const { homedir } = require('node:os');
 const { dirname, join } = require('node:path');
 const {
@@ -11,13 +19,24 @@ const {
   installHooks,
   uninstallHooks,
 } = require('../out/hooks/installer.js');
+const { kohClaudeHome, spoolDirs } = require('../out/paths.js');
 
 const SETTINGS = join(homedir(), '.claude', 'settings.json');
-const BACKUPS = join(homedir(), '.koh-claude', 'backups');
+const HOME = kohClaudeHome();
+const BACKUPS = spoolDirs(HOME).backups;
 const uninstall = process.argv.includes('--uninstall');
 const bridgeArg = process.argv.indexOf('--bridge');
-const bridge =
-  bridgeArg > -1 ? process.argv[bridgeArg + 1] : join(process.cwd(), 'bin/koh-claude-bridge');
+// Source à copier, jamais la cible des hooks. Résolue à côté du script lui-même,
+// jamais du cwd : ainsi le script fonctionne identiquement lancé depuis le dépôt
+// (scripts/ et bin/ sont frères) ou depuis l'extension installée (même
+// arborescence dans le .vsix, cf. .vscodeignore).
+const bridgeSource =
+  bridgeArg > -1 ? process.argv[bridgeArg + 1] : join(__dirname, '..', 'bin', 'koh-claude-bridge');
+// Cible stable, sous kohClaudeHome() : ni le dépôt ni l'extension installée ne
+// sont des emplacements stables (le premier peut être déplacé ou supprimé, la
+// seconde est un dossier versionné qui disparaît à la prochaine mise à jour).
+// Les hooks pointent toujours vers cette copie, jamais vers la source.
+const bridgeTarget = join(HOME, 'bin', 'koh-claude-bridge');
 
 function fail(message) {
   console.error(message);
@@ -51,8 +70,12 @@ try {
   return; // fail() quitte le process ; le return est une garde en plus, pas un besoin
 }
 
+if (!uninstall && !existsSync(bridgeSource)) {
+  fail(`Bridge introuvable : ${bridgeSource}\nRien n'a été écrit.`);
+}
+
 const style = creating ? { indent: 2, newline: true } : detectStyle(raw);
-const after = uninstall ? uninstallHooks(before) : installHooks(before, bridge);
+const after = uninstall ? uninstallHooks(before) : installHooks(before, bridgeTarget);
 
 // Garde-fou : un compte ne peut pas prouver une conservation (deux arbres où une
 // commande étrangère a changé de place, ou a été perdue en même temps qu'une autre
@@ -93,6 +116,18 @@ if (creating) {
   const backup = join(BACKUPS, `settings-${Date.now()}.json`);
   copyFileSync(SETTINGS, backup);
   console.log(`Sauvegarde : ${backup}`);
+}
+
+// Copie le bridge avant d'écrire settings.json : si la copie échoue (source
+// disparue entre la vérification et ici, disque plein…), les hooks référencés
+// dans settings.json ne doivent jamais être posés avant que la cible existe.
+// copyFileSync écrase une copie précédente sans se plaindre : une réinstallation
+// reste idempotente.
+if (!uninstall) {
+  mkdirSync(dirname(bridgeTarget), { recursive: true });
+  copyFileSync(bridgeSource, bridgeTarget);
+  chmodSync(bridgeTarget, 0o755);
+  console.log(`Bridge copié : ${bridgeSource} → ${bridgeTarget}`);
 }
 
 // Écriture atomique : un lecteur concurrent voit l'ancien fichier ou le nouveau,
