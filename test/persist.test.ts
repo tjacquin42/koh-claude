@@ -1,7 +1,7 @@
 import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { spoolDirs, type SpoolDirs } from '../src/paths';
 import {
   ensureDirs,
@@ -13,6 +13,27 @@ import {
 } from '../src/spool/persist';
 import { reduceAll } from '../src/store/reduce';
 import type { Session, SpoolEvent } from '../src/events/types';
+
+// `node:fs/promises` est mocké pour un seul test (N1) : il permet de mettre en
+// pause la suppression d'un fichier de session précis — le point où la purge
+// est « occupée » sur une autre session — le temps qu'un autre appel (simulant
+// une autre fenêtre) réécrive une session ailleurs. Un point d'entrelacement
+// réel, piloté plutôt que chronométré. Délègue à l'implémentation réelle sauf
+// quand ce test arme `unlinkOverride`.
+const { unlinkOverride } = vi.hoisted(() => ({
+  unlinkOverride: { current: undefined as ((path: string) => Promise<void> | undefined) | undefined },
+}));
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    unlink: (path: Parameters<typeof actual.unlink>[0]) => {
+      const override = unlinkOverride.current?.(String(path));
+      return override !== undefined ? override : actual.unlink(path);
+    },
+  };
+});
 
 let home: string;
 let dirs: SpoolDirs;
@@ -30,6 +51,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   rmSync(home, { recursive: true, force: true });
+  unlinkOverride.current = undefined;
 });
 
 describe('persist', () => {
@@ -127,6 +149,48 @@ describe('persist', () => {
       // ou le même drain rejoué) ne doit ni lever ni le reproposer.
       const second = await purgeStaleSessions(dirs, 100_000, 50_000);
       expect(second).toEqual([]);
+    });
+
+    it("ne supprime pas une session ravivée par une autre fenêtre pendant que la purge traite une autre session (N1)", async () => {
+      // On met en pause la suppression de 's-early' — ce qui ne peut se
+      // produire, dans n'importe quelle implémentation, qu'une fois toute
+      // lecture préalable terminée. Pendant cette pause, une autre fenêtre
+      // ravive 's-late'. Une purge qui décide à partir d'un instantané pris
+      // avant cette pause (au lieu de relire juste avant de supprimer) la
+      // supprime quand même.
+      await writeSession(dirs, { ...session('s-early'), lastEventAt: 0 });
+      await writeSession(dirs, { ...session('s-late'), lastEventAt: 0 });
+
+      let triggered = false;
+      let releaseGate: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => {
+        releaseGate = resolve;
+      });
+      let reachedGate: () => void = () => undefined;
+      const reached = new Promise<void>((resolve) => {
+        reachedGate = resolve;
+      });
+      const { unlink: realUnlink } = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+      unlinkOverride.current = (path) => {
+        if (triggered || !path.endsWith('s-early.json')) return undefined;
+        triggered = true;
+        reachedGate();
+        return gate.then(() => realUnlink(path));
+      };
+
+      const purgePromise = purgeStaleSessions(dirs, 100_000, 50_000);
+      await reached;
+
+      // Une autre fenêtre ravive s-late pendant que la purge est occupée sur s-early.
+      await writeSession(dirs, { ...session('s-late'), lastEventAt: 100_000 });
+
+      releaseGate();
+      const purged = await purgePromise;
+      unlinkOverride.current = undefined;
+
+      expect(purged).toContain('s-early');
+      expect(purged).not.toContain('s-late');
+      expect((await readSessions(dirs)).has('s-late')).toBe(true);
     });
   });
 

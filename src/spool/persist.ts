@@ -112,14 +112,35 @@ export async function readSessions(dirs: SpoolDirs): Promise<Map<string, Session
  * la suppression est le seul acquittement, exactement comme pour un événement
  * consommé). Retourne les ids purgés pour que l'appelant puisse aussi retirer
  * l'entrée correspondante d'un cache en mémoire (ex : la `Map` de transcripts).
+ *
+ * Même principe qu'I1 dans `drain()` : la liste des ids candidats sert
+ * seulement à savoir qui regarder, jamais à décider. Chaque id est relu
+ * individuellement (`readSession`) juste avant la suppression, et seul le
+ * verdict de cette lecture-là compte — pas un instantané pris avant les
+ * `await` de cette boucle. Une session ravivée par une autre fenêtre pendant
+ * qu'on en traite une autre survit donc à ce passage : la purge qui se trompe
+ * efface, contrairement à `drain()` où une erreur se corrige au tick suivant.
+ * Ordre trié pour un comportement déterministe, indépendant de l'ordre de
+ * `readdir`.
  */
 export async function purgeStaleSessions(dirs: SpoolDirs, now: number, maxAgeMs: number): Promise<string[]> {
-  const sessions = await readSessions(dirs);
+  let names: string[];
+  try {
+    names = await readdir(dirs.sessions);
+  } catch {
+    return [];
+  }
+  const ids = names
+    .filter((n) => n.endsWith('.json'))
+    .map((n) => n.slice(0, -'.json'.length))
+    .sort();
+
   const purged: string[] = [];
-  for (const s of sessions.values()) {
-    if (now - s.lastEventAt > maxAgeMs) {
-      await removeSession(dirs, s.id);
-      purged.push(s.id);
+  for (const id of ids) {
+    const current = await readSession(dirs, id);
+    if (current !== undefined && now - current.lastEventAt > maxAgeMs) {
+      await removeSession(dirs, id);
+      purged.push(id);
     }
   }
   return purged;
