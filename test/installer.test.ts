@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  countForeignEntries,
   countKohEntries,
+  foreignFingerprint,
   installHooks,
   KOH_MARKER,
   uninstallHooks,
@@ -102,22 +102,57 @@ describe('formes non reconnues', () => {
   });
 });
 
-describe('countForeignEntries', () => {
-  it('compte les commandes étrangères, y compris nichées dans une forme non reconnue', () => {
-    // Vibe Island (PermissionRequest) + mon-hook-a-moi (PreToolUse) = 2, plus la
-    // commande nichée sous la forme malformée reconnue comme du "hooks" non-tableau
-    // ne compte pas puisqu'elle n'a pas de champ command ici — seules les deux
-    // commandes réelles sont comptées.
-    expect(countForeignEntries(existing)).toBe(2);
+describe('foreignFingerprint', () => {
+  it('qualifie chaque commande étrangère par son ascendance en noms', () => {
+    expect(foreignFingerprint(existing)).toEqual([
+      'hooks.PermissionRequest.*::{"type":"command","command":"/vibe/bridge --source claude","timeout":86400}',
+      'hooks.PreToolUse.Bash::{"type":"command","command":"mon-hook-a-moi"}',
+    ]);
   });
 
-  it('ne compte aucune commande étrangère sur un settings.json sans hooks', () => {
-    expect(countForeignEntries({})).toBe(0);
+  it('rend un tableau vide sur un settings.json sans hooks', () => {
+    expect(foreignFingerprint({})).toEqual([]);
   });
 
-  it('ne compte pas nos propres commandes après installation', () => {
-    const before = countForeignEntries(existing);
-    const after = countForeignEntries(installHooks(existing, BRIDGE));
-    expect(after).toBe(before);
+  it('ne change pas après installation', () => {
+    expect(foreignFingerprint(installHooks(existing, BRIDGE))).toEqual(foreignFingerprint(existing));
+  });
+
+  it('ne change pas après un aller-retour, même en présence de formes non reconnues', () => {
+    const back = uninstallHooks(installHooks(withUnknownForms, BRIDGE));
+    expect(foreignFingerprint(back)).toEqual(foreignFingerprint(withUnknownForms));
+  });
+
+  // Contre-exemples de la re-revue : un simple compte de commandes étrangères rend le
+  // même nombre pour ces deux paires d'arbres alors qu'une commande a objectivement
+  // changé de place, ou a été perdue en même temps qu'une autre apparaissait.
+  // L'empreinte, qualifiée par ascendance, doit les distinguer — sinon le garde-fou du
+  // script laisserait passer une régression comme celle du Constat 1.
+  it('distingue une commande étrangère déplacée d un événement à un autre', () => {
+    const treeA = {
+      hooks: {
+        PreToolUse: [{ matcher: '*', hooks: [{ type: 'command', command: 'foo' }] }],
+        PostToolUse: [],
+      },
+    };
+    const treeB = {
+      hooks: {
+        PreToolUse: [],
+        PostToolUse: [{ matcher: '*', hooks: [{ type: 'command', command: 'foo' }] }],
+      },
+    };
+    expect(foreignFingerprint(treeA)).not.toEqual(foreignFingerprint(treeB));
+  });
+
+  it('distingue une commande étrangère perdue en même temps qu une autre apparaît', () => {
+    const treeC = {
+      hooks: { PreToolUse: [{ matcher: '*', hooks: [{ type: 'command', command: 'foo' }] }] },
+    };
+    const treeD = {
+      hooks: {
+        PreToolUse: [{ matcher: '*', hooks: [{ type: 'command', command: 'bar-completement-different' }] }],
+      },
+    };
+    expect(foreignFingerprint(treeC)).not.toEqual(foreignFingerprint(treeD));
   });
 });

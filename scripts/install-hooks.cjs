@@ -6,8 +6,8 @@ const { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFile
 const { homedir } = require('node:os');
 const { dirname, join } = require('node:path');
 const {
-  countForeignEntries,
   countKohEntries,
+  foreignFingerprint,
   installHooks,
   uninstallHooks,
 } = require('../out/hooks/installer.js');
@@ -54,16 +54,34 @@ try {
 const style = creating ? { indent: 2, newline: true } : detectStyle(raw);
 const after = uninstall ? uninstallHooks(before) : installHooks(before, bridge);
 
-// Garde-fou : si des commandes qui ne sont pas les nôtres ont disparu pendant la
-// transformation, on refuse d'écrire plutôt que de risquer de perdre l'outillage
-// d'un autre programme (ex. Vibe Island). C'est le filet qui aurait attrapé une
-// régression comme celle relevée en revue sur les formes non reconnues.
-const foreignBefore = countForeignEntries(before);
-const foreignAfter = countForeignEntries(after);
-if (foreignAfter !== foreignBefore) {
+// Garde-fou : un compte ne peut pas prouver une conservation (deux arbres où une
+// commande étrangère a changé de place, ou a été perdue en même temps qu'une autre
+// apparaissait, peuvent partager le même compte). On compare donc une empreinte —
+// chaque commande étrangère qualifiée par son ascendance — avant et après la
+// transformation, et on refuse d'écrire au moindre écart plutôt que de risquer de
+// perdre l'outillage d'un autre programme (ex. Vibe Island).
+function diffFingerprints(beforeFp, afterFp) {
+  const beforeSet = new Set(beforeFp);
+  const afterSet = new Set(afterFp);
+  return {
+    disparu: beforeFp.filter((e) => !afterSet.has(e)),
+    apparu: afterFp.filter((e) => !beforeSet.has(e)),
+  };
+}
+
+const fpBefore = foreignFingerprint(before);
+const fpAfter = foreignFingerprint(after);
+if (JSON.stringify(fpBefore) !== JSON.stringify(fpAfter)) {
+  const { disparu, apparu } = diffFingerprints(fpBefore, fpAfter);
   fail(
-    `Refus d'écrire : ${foreignBefore} commande(s) étrangère(s) avant la transformation, ` +
-      `${foreignAfter} après. Quelque chose qui n'est pas à nous aurait disparu. Rien n'a été écrit.`,
+    [
+      `Refus d'écrire : l'empreinte de ce qui n'est pas à nous a changé pendant la transformation.`,
+      disparu.length > 0 ? `Disparu (${disparu.length}) :\n  ${disparu.join('\n  ')}` : null,
+      apparu.length > 0 ? `Apparu (${apparu.length}) :\n  ${apparu.join('\n  ')}` : null,
+      `Rien n'a été écrit.`,
+    ]
+      .filter((line) => line !== null)
+      .join('\n'),
   );
 }
 

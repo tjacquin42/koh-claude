@@ -103,24 +103,64 @@ export function countKohEntries(settings: unknown): number {
 }
 
 /**
- * Compte, où qu'elles se trouvent dans l'arbre `hooks`, les commandes qui ne sont pas
- * les nôtres — y compris nichées dans une forme que nous ne reconnaissons pas (par
- * exemple un `hooks` qui n'est pas un tableau mais contient tout de même un objet
- * `{ command }`). Sert de garde-fou côté script d'installation : si ce nombre change
- * après une transformation, quelque chose qui n'est pas à nous a disparu.
+ * Empreinte de tout ce qui, dans l'arbre `hooks`, n'est pas à nous — y compris les
+ * formes que nous ne savons pas classer, sérialisées telles quelles. Sert de garde-fou
+ * côté script d'installation : si cette empreinte change après une transformation,
+ * quelque chose qui n'est pas à nous a disparu, changé de place ou a été remplacé par
+ * autre chose. Un compte ne peut pas prouver une conservation — deux arbres où une
+ * commande étrangère a simplement changé d'événement, ou a été perdue en même temps
+ * qu'une autre apparaissait, peuvent partager le même compte ; l'empreinte, elle,
+ * diffère forcément puisque chaque élément est qualifié par sa position.
+ *
+ * Chaque élément est identifié par son ascendance en noms — `hooks` → nom de
+ * l'événement → valeur du champ `matcher` de l'objet qui le contient quand il en a un
+ * — jamais par un indice de tableau : un indice se déplace légitimement quand on
+ * insère notre propre entrée, un nom d'événement ou un motif de matcher non.
+ *
+ * Parcours volontairement indépendant de `stripOurs`/`isMatcher` : si l'empreinte lisait
+ * la structure de la même façon que la transformation qu'elle surveille, une forme que
+ * cette lecture ne sait pas voir serait absente des deux côtés et le garde-fou
+ * laisserait passer exactement le genre de perte qu'il doit attraper.
+ *
+ * Résidu assumé, documenté plutôt que caché : deux commandes étrangères qui échangent
+ * seulement leur ordre à l'intérieur du même matcher (donc sous la même clé
+ * d'ascendance) restent indiscernables, l'empreinte étant triée pour ignorer l'ordre
+ * d'énumération des clés d'objet.
  */
-export function countForeignEntries(settings: unknown): number {
-  if (!isRecord(settings) || !isRecord(settings['hooks'])) return 0;
-  let n = 0;
-  const walk = (v: unknown): void => {
-    if (Array.isArray(v)) {
-      for (const item of v) walk(item);
-      return;
-    }
-    if (!isRecord(v)) return;
-    if (typeof v['command'] === 'string' && !isOurs(v)) n += 1;
-    for (const value of Object.values(v)) walk(value);
+export function foreignFingerprint(settings: unknown): string[] {
+  if (!isRecord(settings) || !isRecord(settings['hooks'])) return [];
+  const out: string[] = [];
+  const record = (path: string, value: unknown): void => {
+    out.push(`${path}::${JSON.stringify(value)}`);
   };
-  walk(settings['hooks']);
-  return n;
+
+  const walkCommandList = (path: string, list: unknown[]): void => {
+    for (const item of list) {
+      if (isOurs(item)) continue;
+      record(path, item);
+    }
+  };
+
+  const walkMatcherArray = (path: string, list: unknown[]): void => {
+    for (const item of list) {
+      const itemPath =
+        isRecord(item) && typeof item['matcher'] === 'string' ? `${path}.${item['matcher']}` : path;
+      if (isRecord(item) && Array.isArray(item['hooks'])) {
+        walkCommandList(itemPath, item['hooks']);
+      } else {
+        record(itemPath, item);
+      }
+    }
+  };
+
+  for (const [event, value] of Object.entries(settings['hooks'])) {
+    const path = `hooks.${event}`;
+    if (Array.isArray(value)) {
+      walkMatcherArray(path, value);
+    } else {
+      record(path, value);
+    }
+  }
+
+  return out.sort();
 }
