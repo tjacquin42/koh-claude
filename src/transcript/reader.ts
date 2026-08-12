@@ -46,8 +46,11 @@ export async function readTranscript(path: string, from?: TranscriptStats): Prom
 
     const length = size - start.offset;
     const buffer = Buffer.allocUnsafe(length);
-    await handle.read(buffer, 0, length, start.offset);
-    const chunk = buffer.toString('utf8');
+    const { bytesRead } = await handle.read(buffer, 0, length, start.offset);
+    // Bornée à bytesRead : au-delà, allocUnsafe n'a rien écrit — c'est de la
+    // mémoire non initialisée (un fichier tronqué entre stat() et read() en
+    // est la cause la plus plausible ici), qui ne doit jamais être décodée.
+    const chunk = buffer.toString('utf8', 0, bytesRead);
 
     const lastBreak = chunk.lastIndexOf('\n');
     if (lastBreak < 0) return { ...start };

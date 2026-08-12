@@ -2,8 +2,34 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { appendFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readTranscript, type TranscriptStats } from '../src/transcript/reader';
+
+// `open` est mocké pour un seul test (M8) : il permet de simuler un `read()`
+// qui renvoie moins d'octets que demandé (fichier tronqué entre `stat()` et
+// `read()`) sans dépendre d'une vraie course contre le système de fichiers,
+// donc piloté plutôt que chronométré. Délègue à l'implémentation réelle sauf
+// quand ce test arme `openOverride`.
+const { openOverride } = vi.hoisted(() => ({
+  openOverride: {
+    current: undefined as
+      | (() => Promise<{
+          stat: () => Promise<{ size: number }>;
+          read: (buffer: Buffer, offset: number, length: number, position: number) => Promise<{ bytesRead: number }>;
+          close: () => Promise<void>;
+        }>)
+      | undefined,
+  },
+}));
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    open: (path: Parameters<typeof actual.open>[0], flags: Parameters<typeof actual.open>[1]) =>
+      openOverride.current !== undefined ? openOverride.current() : actual.open(path, flags),
+  };
+});
 
 let dir: string;
 let file: string;
@@ -26,6 +52,7 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
+  openOverride.current = undefined;
 });
 
 describe('readTranscript', () => {
@@ -90,5 +117,34 @@ describe('readTranscript', () => {
     expect(stats.assistantTurns).toBe(2);
     expect(stats.branch).toBe('feat-seo');
     expect(stats.offset).toBeLessThan(stale.offset);
+  });
+
+  it("ne décode pas au-delà de bytesRead quand read() renvoie moins que ce qui a été demandé (M8)", async () => {
+    // stat() ment sur la taille (comme si le fichier venait d'être tronqué
+    // après le stat() réel mais avant le read()) : le buffer alloué est donc
+    // plus grand que ce que read() remplit réellement. Le reste du buffer
+    // contient, dans ce test, un fragment décodable d'un « ancien » transcript
+    // — le pire cas plausible avec `allocUnsafe`, où la mémoire réutilisée est
+    // un fragment d'une lecture précédente plutôt que du vrai hasard.
+    const real = assistant(10, 1);
+    const ghost = assistant(99999, 88888);
+    const realLen = Buffer.byteLength(real, 'utf8');
+
+    openOverride.current = () =>
+      Promise.resolve({
+        stat: () => Promise.resolve({ size: realLen + 5000 }),
+        read: (buffer, offset, _length, _position) => {
+          buffer.write(real, offset, 'utf8');
+          buffer.write(ghost, offset + realLen, 'utf8');
+          return Promise.resolve({ bytesRead: realLen });
+        },
+        close: () => Promise.resolve(undefined),
+      });
+
+    const stats = await readTranscript(file);
+
+    expect(stats.assistantTurns).toBe(1);
+    expect(stats.input).toBe(10);
+    expect(stats.output).toBe(1);
   });
 });
