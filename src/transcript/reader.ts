@@ -4,13 +4,10 @@ export interface TranscriptStats {
   offset: number;
   input: number;
   output: number;
-  cacheRead: number;
-  assistantTurns: number;
   branch?: string;
-  entrypoint?: string;
 }
 
-const EMPTY: TranscriptStats = { offset: 0, input: 0, output: 0, cacheRead: 0, assistantTurns: 0 };
+const EMPTY: TranscriptStats = { offset: 0, input: 0, output: 0 };
 
 function num(v: unknown): number {
   return typeof v === 'number' && Number.isFinite(v) ? v : 0;
@@ -69,8 +66,6 @@ export async function readTranscript(path: string, from?: TranscriptStats): Prom
 
       const branch = entry['gitBranch'];
       if (typeof branch === 'string' && branch.length > 0) stats.branch = branch;
-      const entrypoint = entry['entrypoint'];
-      if (typeof entrypoint === 'string' && entrypoint.length > 0) stats.entrypoint = entrypoint;
 
       if (entry['type'] !== 'assistant') continue;
       const message = entry['message'];
@@ -78,10 +73,8 @@ export async function readTranscript(path: string, from?: TranscriptStats): Prom
       const usage = message['usage'];
       if (!isRecord(usage)) continue;
 
-      stats.assistantTurns += 1;
       stats.input += num(usage['input_tokens']);
       stats.output += num(usage['output_tokens']);
-      stats.cacheRead += num(usage['cache_read_input_tokens']);
     }
 
     return stats;
