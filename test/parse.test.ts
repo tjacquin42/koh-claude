@@ -38,4 +38,24 @@ describe('parseSpoolFile', () => {
     );
     expect(ev?.toolTarget).toBe('/x/a.ts');
   });
+
+  it('rejette un session_id qui contient un séparateur de chemin', () => {
+    // "a/b" produit sessions/.tmp-a/b-<pid> côté writeSession → ENOENT. Un
+    // identifiant de session doit être utilisable comme nom de fichier.
+    expect(parseSpoolFile('{"event":"Stop","at":1,"payload":{"session_id":"a/b","cwd":"/x"}}')).toBeUndefined();
+  });
+
+  it('rejette un session_id qui contient un antislash', () => {
+    expect(parseSpoolFile('{"event":"Stop","at":1,"payload":{"session_id":"a\\\\b","cwd":"/x"}}')).toBeUndefined();
+  });
+
+  it('rejette un session_id "." ou ".."', () => {
+    expect(parseSpoolFile('{"event":"Stop","at":1,"payload":{"session_id":".","cwd":"/x"}}')).toBeUndefined();
+    expect(parseSpoolFile('{"event":"Stop","at":1,"payload":{"session_id":"..","cwd":"/x"}}')).toBeUndefined();
+  });
+
+  it('accepte un session_id ordinaire', () => {
+    const ev = parseSpoolFile('{"event":"Stop","at":1,"payload":{"session_id":"abc-123_XYZ","cwd":"/x"}}');
+    expect(ev?.sessionId).toBe('abc-123_XYZ');
+  });
 });

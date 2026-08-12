@@ -14,6 +14,17 @@ function isEventName(v: string): v is EventName {
   return NAMES.includes(v);
 }
 
+/**
+ * `writeSession`/`readSession` utilisent `session_id` tel quel dans un nom de
+ * fichier (`sessions/<id>.json`, `.tmp-<id>-<pid>-<seq>`) : un id qui contient
+ * un séparateur de chemin ou qui vaut `.`/`..` produit un chemin invalide, donc
+ * un `ENOENT` à l'écriture — une donnée mal formée ne doit jamais faire lever
+ * une écriture en aval, elle doit être refusée ici, à la frontière.
+ */
+function isValidSessionId(id: string): boolean {
+  return id !== '.' && id !== '..' && !id.includes('/') && !id.includes('\\');
+}
+
 /** Première cible lisible d'un appel d'outil, tronquée pour l'affichage. */
 function targetOf(toolInput: Record<string, unknown> | undefined): string | undefined {
   if (toolInput === undefined) return undefined;
@@ -45,7 +56,7 @@ export function parseSpoolFile(raw: string): SpoolEvent | undefined {
   const payload = isRecord(json['payload']) ? json['payload'] : {};
   const sessionId = str(payload['session_id']);
   const cwd = str(payload['cwd']);
-  if (sessionId === undefined || cwd === undefined) return undefined;
+  if (sessionId === undefined || cwd === undefined || !isValidSessionId(sessionId)) return undefined;
 
   const toolInput = isRecord(payload['tool_input']) ? payload['tool_input'] : undefined;
 
