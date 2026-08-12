@@ -138,6 +138,32 @@ describe('ReentrantGuard', () => {
       expect(errors[0]).toBeInstanceOf(Error);
     });
 
+    it("passe à fn un signal dont abandoned devient true au moment du dépassement de délai, pas avant", async () => {
+      vi.useFakeTimers();
+      const guard = new ReentrantGuard(1000);
+      const observedBeforeTimeout: boolean[] = [];
+      let observedAfterTimeout: boolean | undefined;
+
+      const runPromise = guard.run(async (signal) => {
+        observedBeforeTimeout.push(signal.abandoned);
+        await new Promise<void>((resolve) => {
+          setTimeout(() => {
+            observedAfterTimeout = signal.abandoned;
+            resolve();
+          }, 5000); // largement après le délai de la garde : fn continue en arrière-plan
+        });
+      }, () => undefined);
+
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(guard.running).toBe(false);
+      expect(observedBeforeTimeout).toEqual([false]); // pas encore abandonné quand fn a démarré
+
+      await vi.advanceTimersByTimeAsync(4000);
+      await runPromise;
+
+      expect(observedAfterTimeout).toBe(true); // la même référence de signal reflète l'abandon après coup
+    });
+
     it('deux passages concurrents après un dépassement de délai : accepté, comme deux fenêtres qui drainent en même temps', async () => {
       vi.useFakeTimers();
       const guard = new ReentrantGuard(1000);

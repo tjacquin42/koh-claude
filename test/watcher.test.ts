@@ -414,6 +414,87 @@ describe('drain — convergence entre fenêtres (I1)', () => {
   });
 });
 
+describe("drain — écriture tardive après abandon (N2 suite)", () => {
+  it("un signal d'abandon consulté juste avant l'écriture empêche une exécution abandonnée d'écraser un état plus récent", async () => {
+    // s1 démarre à l'état idle (startedAt=1, lastEventAt=1, toolCount=0).
+    await dropEvent('1-1-SessionStart.json', hook('SessionStart', 1));
+    await drain(dirs, NOW);
+    expect((await readSessions(dirs)).get('s1')?.status).toBe('idle');
+
+    // « Exécution O » (celle qu'un gardien abandonnera) : un PostToolUse.
+    // Réduit contre l'état idle initial (lu AVANT le Stop plus récent), il
+    // produirait un état "idle" (PostToolUse ne touche pas au statut) — la
+    // panne visée est que cette écriture, si elle a lieu APRÈS le Stop,
+    // écrase inconditionnellement l'état plus récent qu'il a écrit.
+    await dropEvent('2-1-PostToolUse.json', hook('PostToolUse', 2, { tool_name: 'Bash' }));
+
+    let triggered = false;
+    let releaseO: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseO = resolve;
+    });
+    let reachedGate: () => void = () => undefined;
+    const reached = new Promise<void>((resolve) => {
+      reachedGate = resolve;
+    });
+    // On intercepte la lecture du FICHIER DE SESSION (pas celle de
+    // l'événement) : c'est le point d'entrelacement réel entre « O a lu
+    // l'état d'où elle va réduire » et « O agit sur ce qu'elle a lu ». La
+    // lecture réelle est déclenchée immédiatement (elle capture l'état
+    // encore périmé, avant le Stop plus récent) ; seule la LIVRAISON à O est
+    // retardée, ce qu'un vrai `await` ferait entre deux process.
+    readFileOverride.current = (path) => {
+      if (triggered || !path.endsWith('sessions/s1.json')) return undefined;
+      triggered = true;
+      const real = readFile(path, 'utf8');
+      reachedGate();
+      return gate.then(() => real);
+    };
+
+    const signal = { abandoned: false };
+    const drainO = drain(dirs, NOW, new Map(), signal);
+    await reached; // O a lancé la lecture de sessions/s1.json ; pas encore livrée.
+
+    // Un « passage plus récent » traite un Stop pour la même session, en
+    // entier — état final : done_unseen.
+    await dropEvent('3-1-Stop.json', hook('Stop', 3));
+    await drain(dirs, NOW);
+    expect((await readSessions(dirs)).get('s1')?.status).toBe('done_unseen');
+
+    // Le gardien (simulé ici sans minuteur : c'est exactement ce que
+    // ReentrantGuard.run() fait en interne au moment du timeout) décide
+    // d'abandonner O, puis la laisse reprendre avec sa lecture périmée.
+    signal.abandoned = true;
+    releaseO();
+    const resO = await drainO;
+    readFileOverride.current = undefined;
+
+    // Sans le correctif, O écrirait ici son état périmé (idle) par-dessus
+    // done_unseen. Avec le correctif, O consulte `signal.abandoned` juste
+    // avant le couple écriture-suppression et renonce : rien n'est écrit,
+    // rien n'est supprimé — l'invariant « écrire avant de supprimer »
+    // autorise cet abandon sans perte, l'événement sera retraité.
+    const final = await readSessions(dirs);
+    expect(final.get('s1')?.status).toBe('done_unseen');
+    // O n'a rien appliqué elle-même : elle a renoncé avant d'écrire.
+    expect(resO.applied).toBe(0);
+    // Le passage frais qui a traité le Stop a aussi vu 2-1-PostToolUse.json
+    // dans son propre listing (O ne l'avait pas encore supprimé) et l'a donc
+    // traité lui-même au passage — retraitement redondant mais inoffensif,
+    // conforme au modèle de convergence sans verrou. events/ est donc vide :
+    // l'événement n'a jamais été perdu, seulement traité par l'autre côté.
+    expect(readdirSync(dirs.events).filter((f) => f.endsWith('.json'))).toHaveLength(0);
+  });
+
+  it("sans abandon (signal.abandoned reste false), le comportement est inchangé : l'événement s'applique normalement", async () => {
+    await dropEvent('1-1-SessionStart.json', hook('SessionStart', 1));
+    const signal = { abandoned: false };
+    const res = await drain(dirs, NOW, new Map(), signal);
+    expect(res.applied).toBe(1);
+    expect((await readSessions(dirs)).get('s1')?.startedAt).toBe(1);
+  });
+});
+
 describe('SpoolWatcher', () => {
   it('start() tolère un dossier events absent, sans perdre la capacité de consommer ce qui arrive ensuite', async () => {
     const missingDirs = spoolDirs(join(home, 'pas-encore-cree'));

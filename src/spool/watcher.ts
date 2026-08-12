@@ -6,7 +6,7 @@ import { parseSpoolFile } from '../events/parse';
 import { reduce } from '../store/reduce';
 import { SESSION_PURGE_MS } from '../store/staleness';
 import { purgeStaleSessions, readSession, removeSession, writeSession } from './persist';
-import { GUARD_TIMEOUT_MS, ReentrantGuard } from '../lib/reentrant-guard';
+import { type AbandonSignal, GUARD_TIMEOUT_MS, ReentrantGuard } from '../lib/reentrant-guard';
 
 export interface DrainResult {
   applied: number;
@@ -59,11 +59,24 @@ function isErrnoException(err: unknown): err is NodeJS.ErrnoException {
  * consécutifs de chaque événement par son nom de fichier — unique par
  * construction, donc « le même événement » d'un appel à l'autre. Un
  * `SpoolWatcher` la possède et la fait persister entre ses ticks.
+ *
+ * `signal` (fourni par `ReentrantGuard.run()`, absent si on appelle `drain`
+ * hors d'une garde) protège contre un défaut qu'I1 ne couvre pas : I1 relit
+ * l'état d'une session juste avant de la RÉDUIRE, ce qui protège la lecture,
+ * pas l'écriture qui suit. Une exécution abandonnée par la garde (elle a
+ * dépassé son délai, mais continue en arrière-plan) peut avoir réduit un
+ * état à partir d'une lecture désormais périmée ; si elle écrit quand même,
+ * elle écrase un état plus récent écrit entre-temps par un passage frais.
+ * `signal.abandoned` est donc consulté juste avant CHAQUE couple
+ * écriture-puis-suppression, jamais avant : l'invariant « on écrit l'état
+ * avant de supprimer l'événement » est ce qui rend cet abandon sans perte —
+ * l'événement, ni appliqué ni supprimé, sera retraité par le passage frais.
  */
 export async function drain(
   dirs: SpoolDirs,
   now: number,
   failureCounts: Map<string, number> = new Map(),
+  signal?: AbandonSignal,
 ): Promise<DrainResult> {
   let names: string[] = [];
   try {
@@ -98,6 +111,19 @@ export async function drain(
     try {
       const current = await readSession(dirs, ev.sessionId);
       const next = reduce(current, ev);
+
+      if (signal?.abandoned) {
+        // Cette exécution a été abandonnée (délai de garde dépassé) pendant
+        // qu'elle tenait encore cette lecture périmée : écrire `next`
+        // maintenant écraserait un état plus récent écrit par le passage
+        // frais qui tourne déjà. On s'arrête ici, avant d'écrire quoi que ce
+        // soit — l'événement reste en place, ni appliqué ni supprimé, et
+        // sera retraité. Rien d'autre ne peut plus être fait de sûr par
+        // cette exécution : on arrête tout le drain, pas seulement cet
+        // événement.
+        return { applied, rejected, deferred, purged: [], rejectedPermanently };
+      }
+
       if (next === undefined) {
         await removeSession(dirs, ev.sessionId);
       } else {
@@ -243,8 +269,8 @@ export class SpoolWatcher {
   }
 
   private tick(): Promise<void> {
-    return this.guard.run(async () => {
-      const res = await drain(this.dirs, this.now(), this.failureCounts);
+    return this.guard.run(async (signal) => {
+      const res = await drain(this.dirs, this.now(), this.failureCounts, signal);
       if (res.rejectedPermanently.length > 0) {
         // Signalement dédié : drain() n'a pas échoué (les autres événements
         // se sont appliqués normalement), mais celui-ci a été abandonné

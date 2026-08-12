@@ -35,22 +35,38 @@ export const GUARD_TIMEOUT_MS = 60_000;
  * un gel total et muet. Passé ce délai, la garde relâche `running` et signale
  * une fois ; `fn` continue en arrière-plan (rien ne peut l'annuler), et si
  * elle finit par rejeter, `onError` la rattrape quand même — abandonner
- * l'attente ne doit pas ouvrir un rejet non géré. Un appel qui arrive après
- * ce relâchement s'exécute concurremment à l'exécution abandonnée : accepté,
- * et sans risque nouveau — c'est exactement ce que le correctif I1 de
- * `drain()` rend déjà sûr en routine (deux fenêtres qui drainent en même
- * temps).
+ * l'attente ne doit pas ouvrir un rejet non géré.
+ *
+ * Un appel qui arrive après ce relâchement s'exécute concurremment à
+ * l'exécution abandonnée : accepté, mais ce n'est PAS sans risque nouveau,
+ * contrairement à ce qu'une version antérieure de ce commentaire affirmait.
+ * I1 (dans `drain()`) sécurise la *lecture* — relire l'état d'une session
+ * juste avant de la réduire — pas l'*écriture* : rien n'empêchait une
+ * exécution abandonnée d'écrire, après coup, un état plus ancien par-dessus
+ * celui qu'un passage plus récent venait d'écrire. C'est pour ça que `fn`
+ * reçoit un `AbandonSignal` : la fonction gardée doit le consulter juste
+ * avant d'écrire quoi que ce soit de persistant, et renoncer si `abandoned`
+ * est déjà vrai à ce moment-là (voir `drain()`, qui l'utilise juste avant le
+ * couple écriture-puis-suppression).
  */
+export interface AbandonSignal {
+  readonly abandoned: boolean;
+}
+
 export class ReentrantGuard {
   running = false;
 
   constructor(private readonly timeoutMs: number) {}
 
-  async run(fn: () => Promise<void>, onError: (err: unknown) => void): Promise<void> {
+  async run(fn: (signal: AbandonSignal) => Promise<void>, onError: (err: unknown) => void): Promise<void> {
     if (this.running) return;
     this.running = true;
 
-    const execution = fn();
+    // Objet mutable ici ; exposé à `fn` via le type `AbandonSignal` (lecture
+    // seule) — la même référence, deux vues. `run()` la flippe au timeout,
+    // `fn` ne peut que la lire.
+    const signal: { abandoned: boolean } = { abandoned: false };
+    const execution = fn(signal);
     // Toujours observée, que le délai soit dépassé ou non : sans ça, une
     // exécution abandonnée par le délai qui finit par rejeter produirait un
     // rejet non géré, exactement ce que ce même mécanisme empêche par
@@ -69,6 +85,7 @@ export class ReentrantGuard {
 
     if (result === 'timed-out') {
       this.running = false;
+      signal.abandoned = true;
       onError(new Error(`ReentrantGuard : délai de ${this.timeoutMs} ms dépassé sans résolution`));
       void settled.then((late) => {
         if (late.failed) onError(late.err);
