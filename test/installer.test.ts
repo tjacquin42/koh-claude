@@ -7,7 +7,7 @@ import {
   uninstallHooks,
 } from '../src/hooks/installer';
 
-const BRIDGE = '/Users/jack/DEV/koh-claude/bin/koh-claude-bridge';
+const BRIDGE = '/Users/dev/koh-claude/bin/koh-claude-bridge';
 
 const existing = {
   model: 'opus',
@@ -63,6 +63,14 @@ describe('installHooks', () => {
 
   it('la désinstallation est idempotente', () => {
     expect(countKohEntries(uninstallHooks(uninstallHooks(installHooks(existing, BRIDGE))))).toBe(0);
+  });
+
+  it("retire la clé hooks plutôt que de laisser un objet vide quand il ne reste rien, ni à nous ni à personne (M5)", () => {
+    const out = uninstallHooks(installHooks({}, BRIDGE)) as Record<string, unknown>;
+    expect(out).not.toHaveProperty('hooks');
+    // Le garde-fou d'empreinte doit rester intact : rien n'a changé pour lui,
+    // qu'il reste "hooks": {} ou que la clé disparaisse.
+    expect(foreignFingerprint(out)).toEqual([]);
   });
 });
 

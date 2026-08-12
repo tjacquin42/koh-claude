@@ -111,7 +111,13 @@ export function uninstallHooks(settings: unknown): unknown {
     if (kept.length > 0) hooks[event] = kept;
   }
 
-  root['hooks'] = hooks;
+  // Rien à nous ni à personne d'autre : ne pas laisser une clé `hooks: {}`
+  // résiduelle dans un fichier qui n'est pas le nôtre.
+  if (Object.keys(hooks).length > 0) {
+    root['hooks'] = hooks;
+  } else {
+    delete root['hooks'];
+  }
   return root;
 }
 
