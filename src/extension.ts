@@ -12,6 +12,7 @@ import { StatusSummary } from './ui/statusbar';
 import { FocusBroker } from './focus/broker';
 import { countKohEntries } from './hooks/installer';
 import type { Session } from './events/types';
+import { ReentrantGuard } from './lib/reentrant-guard';
 
 const REFRESH_MS = 2_000;
 
@@ -31,41 +32,57 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // FocusBroker.
   let transcriptFailureWarned = false;
   let renderFailureWarned = false;
-  // Garde de réentrance, comme SpoolWatcher.tick() et FocusBroker.tick() :
-  // render() est déclenché par trois sources indépendantes (minuteur, watcher,
-  // commande de rafraîchissement), qui peuvent se chevaucher si un rendu est lent.
-  let rendering = false;
+  let drainFailureWarned = false;
+  // Garde de réentrance factorisée (ReentrantGuard) : render() est déclenché
+  // par trois sources indépendantes (minuteur, watcher, commande de
+  // rafraîchissement), qui peuvent se chevaucher si un rendu est lent — même
+  // motif que SpoolWatcher.tick() et FocusBroker.tick().
+  const renderGuard = new ReentrantGuard();
 
   async function render(): Promise<void> {
-    if (rendering) return;
-    rendering = true;
-    try {
-      const map = await withTokens(await readSessions(dirs), transcripts, () => {
-        if (transcriptFailureWarned) return;
-        transcriptFailureWarned = true;
-        void vscode.window.showWarningMessage(
-          "Koh-Claude : lecture d'un transcript impossible — cette session s'affiche sans ses compteurs.",
-        );
-      });
-      tree.setSessions(map);
-      status.update(map);
-    } catch {
-      // Filet générique : quelle que soit la cause restée hors de l'isolation
-      // par session ci-dessus, ce rendu échoue seul — jamais les suivants. Le
-      // minuteur, le watcher et la commande de rafraîchissement redéclenchent
-      // tous render() indépendamment de cet échec.
-      if (!renderFailureWarned) {
+    return renderGuard.run(
+      async () => {
+        const map = await withTokens(await readSessions(dirs), transcripts, () => {
+          if (transcriptFailureWarned) return;
+          transcriptFailureWarned = true;
+          void vscode.window.showWarningMessage(
+            "Koh-Claude : lecture d'un transcript impossible — cette session s'affiche sans ses compteurs.",
+          );
+        });
+        tree.setSessions(map);
+        status.update(map);
+      },
+      () => {
+        // Filet générique : quelle que soit la cause restée hors de l'isolation
+        // par session ci-dessus, ce rendu échoue seul — jamais les suivants. Le
+        // minuteur, le watcher et la commande de rafraîchissement redéclenchent
+        // tous render() indépendamment de cet échec.
+        if (renderFailureWarned) return;
         renderFailureWarned = true;
         void vscode.window.showWarningMessage(
           'Koh-Claude : le rendu du tableau de bord a échoué — nouvelle tentative automatique.',
         );
-      }
-    } finally {
-      rendering = false;
-    }
+      },
+    );
   }
 
-  const watcher = new SpoolWatcher(dirs, () => void render());
+  const watcher = new SpoolWatcher(
+    dirs,
+    (res) => {
+      // Une session purgée (24h sans événement, voir purgeStaleSessions) ne
+      // doit pas laisser une entrée orpheline dans ce cache en mémoire :
+      // sinon la purge sur disque ne borne rien côté mémoire.
+      for (const id of res.purged) transcripts.delete(id);
+      void render();
+    },
+    () => {
+      if (drainFailureWarned) return;
+      drainFailureWarned = true;
+      void vscode.window.showWarningMessage(
+        'Koh-Claude : la lecture des événements a échoué — nouvelle tentative automatique.',
+      );
+    },
+  );
   watcher.start();
   broker.start();
 
@@ -94,7 +111,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     { dispose: () => broker.stop() },
     { dispose: () => clearInterval(ticker) },
     vscode.commands.registerCommand('kohClaude.refresh', () => void render()),
-    vscode.commands.registerCommand('kohClaude.focusSession', (s: Session) => void broker.request(s)),
+    vscode.commands.registerCommand('kohClaude.focusSession', (s: Session) => void broker.request(s).catch(() => undefined)),
     vscode.commands.registerCommand('kohClaude.installHooks', () => {
       const terminal = vscode.window.createTerminal('Koh-Claude');
       terminal.sendText(`node "${installScript}"`);
