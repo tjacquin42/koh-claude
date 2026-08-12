@@ -4,13 +4,13 @@ import { join } from 'node:path';
 import * as vscode from 'vscode';
 import { kohClaudeHome, spoolDirs } from './paths';
 import { ensureDirs, readSessions } from './spool/persist';
-import { appendLocalEvent, SpoolWatcher } from './spool/watcher';
+import { SpoolWatcher } from './spool/watcher';
 import type { TranscriptStats } from './transcript/reader';
 import { withTokens } from './transcript/tokens';
 import { SessionsTree } from './ui/tree';
 import { StatusSummary } from './ui/statusbar';
 import { FocusBroker } from './focus/broker';
-import { sessionsToAcknowledge } from './focus/claims';
+import { acknowledgeClickedSession, acknowledgeVisibleSessions } from './focus/acknowledge';
 import { countKohEntries } from './hooks/installer';
 import type { Session } from './events/types';
 import { GUARD_TIMEOUT_MS, ReentrantGuard } from './lib/reentrant-guard';
@@ -104,15 +104,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   // Acquitte les sessions terminées quand la vue devient visible dans cette
-  // fenêtre — mais seulement celles que cette fenêtre revendique (spec §5) :
-  // sans le filtre par claims(), regarder la vue depuis n'importe quel projet
-  // effaçait le « terminé non lu » de tous les projets de toutes les fenêtres.
+  // fenêtre — mais seulement celles que cette fenêtre revendique (spec §5).
+  // acknowledgeVisibleSessions est testée directement (test/acknowledge.test.ts) :
+  // le point d'appel lui-même, pas seulement la primitive pure qu'il utilise.
   const onVisible = view.onDidChangeVisibility(async (e) => {
     if (!e.visible) return;
-    const sessions = await readSessions(dirs);
-    for (const s of sessionsToAcknowledge(sessions.values(), workspaceFolders())) {
-      await appendLocalEvent(dirs, { event: 'Ack', sessionId: s.id, cwd: s.cwd });
-    }
+    await acknowledgeVisibleSessions(dirs, workspaceFolders());
   });
 
   const ticker = setInterval(() => void render(), REFRESH_MS);
@@ -133,11 +130,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('kohClaude.focusSession', (s: Session) => {
       // Le clic acquitte inconditionnellement (spec §5 : « clic sur la
       // session »), indépendamment de claims() — qui ne gouverne que
-      // l'acquittement passif à l'affichage de la vue, ci-dessus. Un Ack sur
-      // une session déjà purgée ou inconnue n'en recrée pas une (I2, reduce()
-      // ignore un Ack sans session préalable) : aucune vérification d'ordre
-      // n'est nécessaire ici.
-      void appendLocalEvent(dirs, { event: 'Ack', sessionId: s.id, cwd: s.cwd }).catch(() => undefined);
+      // l'acquittement passif d'acknowledgeVisibleSessions, ci-dessus.
+      // acknowledgeClickedSession est testée directement, comme sa jumelle.
+      void acknowledgeClickedSession(dirs, s).catch(() => undefined);
       void broker.request(s).catch(() => undefined);
     }),
     vscode.commands.registerCommand('kohClaude.installHooks', () => {
