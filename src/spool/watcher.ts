@@ -6,7 +6,7 @@ import { parseSpoolFile } from '../events/parse';
 import { reduce } from '../store/reduce';
 import { SESSION_PURGE_MS } from '../store/staleness';
 import { purgeStaleSessions, readSession, removeSession, writeSession } from './persist';
-import { ReentrantGuard } from '../lib/reentrant-guard';
+import { GUARD_TIMEOUT_MS, ReentrantGuard } from '../lib/reentrant-guard';
 
 export interface DrainResult {
   applied: number;
@@ -156,7 +156,7 @@ export async function appendLocalEvent(dirs: SpoolDirs, input: LocalEventInput):
 export class SpoolWatcher {
   private watcher: FSWatcher | undefined;
   private timer: NodeJS.Timeout | undefined;
-  private readonly guard = new ReentrantGuard();
+  private readonly guard = new ReentrantGuard(GUARD_TIMEOUT_MS);
 
   constructor(
     private readonly dirs: SpoolDirs,

@@ -12,7 +12,7 @@ import { StatusSummary } from './ui/statusbar';
 import { FocusBroker } from './focus/broker';
 import { countKohEntries } from './hooks/installer';
 import type { Session } from './events/types';
-import { ReentrantGuard } from './lib/reentrant-guard';
+import { GUARD_TIMEOUT_MS, ReentrantGuard } from './lib/reentrant-guard';
 
 const REFRESH_MS = 2_000;
 
@@ -37,7 +37,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // par trois sources indépendantes (minuteur, watcher, commande de
   // rafraîchissement), qui peuvent se chevaucher si un rendu est lent — même
   // motif que SpoolWatcher.tick() et FocusBroker.tick().
-  const renderGuard = new ReentrantGuard();
+  const renderGuard = new ReentrantGuard(GUARD_TIMEOUT_MS);
 
   async function render(): Promise<void> {
     return renderGuard.run(

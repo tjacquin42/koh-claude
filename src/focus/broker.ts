@@ -6,7 +6,7 @@ import * as vscode from 'vscode';
 import type { SpoolDirs } from '../paths';
 import type { Session } from '../events/types';
 import { claims } from './claims';
-import { ReentrantGuard } from '../lib/reentrant-guard';
+import { GUARD_TIMEOUT_MS, ReentrantGuard } from '../lib/reentrant-guard';
 
 const FOCUS_COMMAND = 'claude-vscode.editor.openLast';
 
@@ -19,7 +19,7 @@ const STALE_REQUEST_MS = 30_000;
 export class FocusBroker {
   private watcher: FSWatcher | undefined;
   private timer: NodeJS.Timeout | undefined;
-  private readonly guard = new ReentrantGuard();
+  private readonly guard = new ReentrantGuard(GUARD_TIMEOUT_MS);
   private warnedMissingCommand = false;
   private consumeFailureWarned = false;
   private readonly fallbacks = new Map<string, NodeJS.Timeout>();
