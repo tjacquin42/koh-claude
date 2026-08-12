@@ -5,7 +5,8 @@ import * as vscode from 'vscode';
 import { kohClaudeHome, spoolDirs } from './paths';
 import { ensureDirs, readSessions } from './spool/persist';
 import { appendLocalEvent, SpoolWatcher } from './spool/watcher';
-import { readTranscript, type TranscriptStats } from './transcript/reader';
+import type { TranscriptStats } from './transcript/reader';
+import { withTokens } from './transcript/tokens';
 import { SessionsTree } from './ui/tree';
 import { StatusSummary } from './ui/statusbar';
 import { FocusBroker } from './focus/broker';
@@ -25,21 +26,43 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const view = vscode.window.createTreeView('kohClaude.sessions', { treeDataProvider: tree });
 
-  async function withTokens(map: Map<string, Session>): Promise<Map<string, Session>> {
-    for (const s of map.values()) {
-      if (s.transcriptPath === undefined) continue;
-      const stats = await readTranscript(s.transcriptPath, transcripts.get(s.id));
-      transcripts.set(s.id, stats);
-      s.tokens = { input: stats.input, output: stats.output };
-      if (s.branch === undefined && stats.branch !== undefined) s.branch = stats.branch;
-    }
-    return map;
-  }
+  // Un seul avertissement par cause, jamais un par tick (le minuteur tourne
+  // toutes les REFRESH_MS) : même précédent que `warnedMissingCommand` dans
+  // FocusBroker.
+  let transcriptFailureWarned = false;
+  let renderFailureWarned = false;
+  // Garde de réentrance, comme SpoolWatcher.tick() et FocusBroker.tick() :
+  // render() est déclenché par trois sources indépendantes (minuteur, watcher,
+  // commande de rafraîchissement), qui peuvent se chevaucher si un rendu est lent.
+  let rendering = false;
 
   async function render(): Promise<void> {
-    const map = await withTokens(await readSessions(dirs));
-    tree.setSessions(map);
-    status.update(map);
+    if (rendering) return;
+    rendering = true;
+    try {
+      const map = await withTokens(await readSessions(dirs), transcripts, () => {
+        if (transcriptFailureWarned) return;
+        transcriptFailureWarned = true;
+        void vscode.window.showWarningMessage(
+          "Koh-Claude : lecture d'un transcript impossible — cette session s'affiche sans ses compteurs.",
+        );
+      });
+      tree.setSessions(map);
+      status.update(map);
+    } catch {
+      // Filet générique : quelle que soit la cause restée hors de l'isolation
+      // par session ci-dessus, ce rendu échoue seul — jamais les suivants. Le
+      // minuteur, le watcher et la commande de rafraîchissement redéclenchent
+      // tous render() indépendamment de cet échec.
+      if (!renderFailureWarned) {
+        renderFailureWarned = true;
+        void vscode.window.showWarningMessage(
+          'Koh-Claude : le rendu du tableau de bord a échoué — nouvelle tentative automatique.',
+        );
+      }
+    } finally {
+      rendering = false;
+    }
   }
 
   const watcher = new SpoolWatcher(dirs, () => void render());
