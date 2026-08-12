@@ -6,7 +6,9 @@ import { sessionDescription, sessionLabel, sessionTooltip, statusLabel } from '.
 export type TreeNode =
   | { kind: 'project'; project: string; sessions: Session[] }
   | { kind: 'session'; session: Session }
-  | { kind: 'empty'; message: string };
+  // `action` distingue « il faut installer les hooks », cliquable, de « rien à
+  // afficher », qui ne doit rien déclencher.
+  | { kind: 'empty'; message: string; action?: 'install' };
 
 const ICONS: Record<Status, { id: string; color?: string }> = {
   running: { id: 'circle-filled', color: 'charts.blue' },
@@ -40,7 +42,9 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode> {
   getChildren(node?: TreeNode): TreeNode[] {
     if (node === undefined) {
       if (!this.hooksInstalled) {
-        return [{ kind: 'empty', message: 'Hooks non installés — cliquez pour les installer' }];
+        return [
+          { kind: 'empty', message: 'Hooks non installés — cliquez pour les installer', action: 'install' },
+        ];
       }
       if (this.sessions.length === 0) {
         return [{ kind: 'empty', message: 'Aucune session Claude Code active' }];
@@ -60,7 +64,9 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode> {
   getTreeItem(node: TreeNode): vscode.TreeItem {
     if (node.kind === 'empty') {
       const item = new vscode.TreeItem(node.message);
-      item.command = { command: 'kohClaude.installHooks', title: 'Installer' };
+      if (node.action === 'install') {
+        item.command = { command: 'kohClaude.installHooks', title: 'Installer' };
+      }
       return item;
     }
     if (node.kind === 'project') {
