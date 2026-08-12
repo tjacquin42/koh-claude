@@ -1,5 +1,5 @@
 import { watch, type FSWatcher } from 'node:fs';
-import { readdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import * as vscode from 'vscode';
@@ -9,8 +9,18 @@ import { claims } from './claims';
 
 const FOCUS_COMMAND = 'claude-vscode.editor.openLast';
 
+// Une requête plus vieille que ce délai n'est plus honorée : elle serait
+// consommée hors de tout contexte (ex : par le filet périodique, ou par un
+// événement fs.watch sans rapport), ce qui ferait sauter une fenêtre au
+// premier plan sans que l'utilisateur ait rien cliqué.
+const STALE_REQUEST_MS = 30_000;
+
 export class FocusBroker {
   private watcher: FSWatcher | undefined;
+  private timer: NodeJS.Timeout | undefined;
+  private running = false;
+  private warnedMissingCommand = false;
+  private readonly fallbacks = new Map<string, NodeJS.Timeout>();
 
   constructor(private readonly dirs: SpoolDirs) {}
 
@@ -25,10 +35,16 @@ export class FocusBroker {
       return;
     }
     const name = join(this.dirs.requests, `focus-${s.id}.json`);
-    await writeFile(name, JSON.stringify({ sessionId: s.id, cwd: s.cwd, at: Date.now() }), 'utf8');
+    const tmp = join(this.dirs.requests, `.tmp-${s.id}-${process.pid}`);
+    const body = JSON.stringify({ sessionId: s.id, cwd: s.cwd, at: Date.now() });
+    // Fichier temporaire puis renommage : une autre fenêtre réveillée par le
+    // même fs.watch ne doit jamais lire un fichier partiel.
+    await writeFile(tmp, body, 'utf8');
+    await rename(tmp, name);
 
     // Si personne ne l'a consommée, aucune fenêtre ne détient ce projet : on l'ouvre.
-    setTimeout(() => {
+    const timer = setTimeout(() => {
+      this.fallbacks.delete(s.id);
       void readFile(name, 'utf8').then(
         async () => {
           await unlink(name).catch(() => undefined);
@@ -37,27 +53,59 @@ export class FocusBroker {
         () => undefined, // consommée : rien à faire
       );
     }, 2_000);
+    this.fallbacks.set(s.id, timer);
   }
 
   private async focusHere(): Promise<void> {
     try {
       await vscode.commands.executeCommand(FOCUS_COMMAND);
     } catch {
-      void vscode.window.showWarningMessage(
-        "Koh-Claude : l'extension Claude Code n'expose pas de commande de focus dans cette version.",
-      );
+      // Un avertissement par session d'extension suffit : répété à chaque
+      // clic, il devient du bruit qu'on apprend à ignorer.
+      if (!this.warnedMissingCommand) {
+        this.warnedMissingCommand = true;
+        void vscode.window.showWarningMessage(
+          "Koh-Claude : l'extension Claude Code n'expose pas de commande de focus dans cette version.",
+        );
+      }
     }
   }
 
   start(): void {
-    this.watcher = watch(this.dirs.requests, () => {
-      void this.consume();
-    });
+    void this.tick();
+    try {
+      this.watcher = watch(this.dirs.requests, () => this.schedule());
+    } catch {
+      // Le dossier n'existe pas encore (ex : ensureDirs pas encore passé sur
+      // cette machine). Le filet périodique ci-dessous prend le relais dès
+      // qu'il apparaîtra.
+      this.watcher = undefined;
+    }
+    // Filet : fs.watch peut manquer des événements sur certains volumes.
+    this.timer = setInterval(() => this.schedule(), 5_000);
   }
 
   stop(): void {
     this.watcher?.close();
     this.watcher = undefined;
+    if (this.timer !== undefined) clearInterval(this.timer);
+    this.timer = undefined;
+    for (const t of this.fallbacks.values()) clearTimeout(t);
+    this.fallbacks.clear();
+  }
+
+  private schedule(): void {
+    void this.tick();
+  }
+
+  private async tick(): Promise<void> {
+    if (this.running) return; // pas de vidange concurrente dans la même fenêtre
+    this.running = true;
+    try {
+      await this.consume();
+    } finally {
+      this.running = false;
+    }
   }
 
   /** Ne consomme que les requêtes qui concernent les dossiers de cette fenêtre. */
@@ -69,10 +117,18 @@ export class FocusBroker {
       return;
     }
     const folders = this.folders();
+    const now = Date.now();
     for (const name of names.filter((n) => n.startsWith('focus-'))) {
       const path = join(this.dirs.requests, name);
       try {
         const parsed: unknown = JSON.parse(await readFile(path, 'utf8'));
+        const at = (parsed as { at?: unknown }).at;
+        if (typeof at === 'number' && now - at > STALE_REQUEST_MS) {
+          // Trop vieille pour être honorée hors contexte : on l'écarte sans
+          // déclencher de focus.
+          await unlink(path);
+          continue;
+        }
         const cwd = (parsed as { cwd?: unknown }).cwd;
         if (typeof cwd !== 'string' || !claims(folders, cwd)) continue;
         await unlink(path);

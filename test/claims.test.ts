@@ -20,4 +20,13 @@ describe('claims', () => {
   it('ne revendique rien sans dossier ouvert', () => {
     expect(claims([], '/Users/jack/DEV/pity-tidy')).toBe(false);
   });
+
+  it('revendique indépendamment de la casse (macOS insensible à la casse)', () => {
+    expect(claims(folders, '/users/jack/dev/pity-tidy')).toBe(true);
+    expect(claims(folders, '/Users/jack/DEV/PITY-TIDY/web')).toBe(true);
+  });
+
+  it('ne revendique toujours pas le préfixe trompeur, même avec une casse différente', () => {
+    expect(claims(folders, '/Users/jack/DEV/PITY-TIDY-old')).toBe(false);
+  });
 });
