@@ -1,0 +1,41 @@
+#!/bin/zsh -f
+# koh-claude-bridge — dépose le payload d'un hook Claude Code dans le spool.
+# Ne parse rien. N'écrit jamais sur stdout. Sort toujours en 0.
+# -f empêche les fichiers de démarrage de l'utilisateur de polluer le protocole des hooks.
+emulate -L zsh
+zmodload zsh/datetime 2>/dev/null || true
+
+EVENT="${1:-unknown}"
+DIR="${KOH_CLAUDE_HOME:-$HOME/.koh-claude}/events"
+[[ -d "$DIR" ]] || exit 0
+
+# Déplacer un `2>/dev/null` sur chaque redirection ne suffit pas : zsh peut
+# signaler l'échec de la redirection elle-même (ex : permission refusée sur
+# "> $TMP") sur son propre stderr, avant que la commande protégée ne
+# s'exécute. `exec` redirige le stderr du script entier une fois pour toutes,
+# ce qui couvre aussi ce cas. Invariant du bridge : ne jamais perturber la
+# session Claude Code qui l'appelle, ni sur stdout, ni sur stderr, ni par un
+# code de retour non nul.
+exec 2>/dev/null
+
+STAMP="$(printf '%.0f' $(( ${EPOCHREALTIME:-0} * 1000 )) 2>/dev/null)"
+[[ -n "$STAMP" && "$STAMP" != "0" ]] || STAMP="$(/bin/date +%s)000"
+
+# Un pid non zero-paddé trie mal lexicographiquement au sein d'une même
+# milliseconde ("9" > "10" en tri de chaînes, alors que 9 < 10) : deux
+# événements posés à la même milliseconde par des process d'id de largeurs
+# différentes pourraient s'appliquer dans le mauvais ordre. Largeur fixe,
+# assez large pour n'être jamais atteinte par un vrai pid.
+PID="$(printf '%010d' "$$")"
+
+TMP="$DIR/.tmp-$PID-$EVENT"
+OUT="$DIR/$STAMP-$PID-$EVENT.json"
+
+{
+  printf '{"event":"%s","at":%s,"entrypoint":"%s","termProgram":"%s","payload":' \
+    "$EVENT" "$STAMP" "${CLAUDE_CODE_ENTRYPOINT:-}" "${TERM_PROGRAM:-}"
+  /bin/cat
+  printf '}\n'
+} > "$TMP" 2>/dev/null && /bin/mv -f "$TMP" "$OUT" 2>/dev/null
+
+exit 0

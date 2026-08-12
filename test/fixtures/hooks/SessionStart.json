@@ -1,0 +1,13 @@
+{
+  "event": "SessionStart",
+  "at": 1700000000000,
+  "entrypoint": "sdk-cli",
+  "termProgram": "",
+  "payload": {
+    "session_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "transcript_path": "/Users/dev/.claude/projects/-Users-dev-projet/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jsonl",
+    "cwd": "/Users/dev/projet",
+    "hook_event_name": "SessionStart",
+    "source": "startup"
+  }
+}

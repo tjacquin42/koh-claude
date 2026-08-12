@@ -1,0 +1,22 @@
+{
+  "event": "PreToolUse",
+  "at": 1700000009000,
+  "entrypoint": "sdk-cli",
+  "termProgram": "",
+  "payload": {
+    "session_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "transcript_path": "/Users/dev/.claude/projects/-Users-dev-projet/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jsonl",
+    "cwd": "/Users/dev/projet",
+    "prompt_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    "permission_mode": "default",
+    "effort": {
+      "level": "xhigh"
+    },
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Read",
+    "tool_input": {
+      "file_path": "/Users/dev/projet/NOTES.md"
+    },
+    "tool_use_id": "toolu_01AAAAAAAAAAAAAAAAAAAAAAAA"
+  }
+}
