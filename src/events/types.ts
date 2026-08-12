@@ -14,7 +14,7 @@ export const HOOK_EVENTS = [
 export type HookEvent = (typeof HOOK_EVENTS)[number];
 
 /** Événements produits par l'extension elle-même, déposés dans le même spool. */
-export const LOCAL_EVENTS = ['Ack', 'Focus'] as const;
+export const LOCAL_EVENTS = ['Ack'] as const;
 export type LocalEvent = (typeof LOCAL_EVENTS)[number];
 
 export type EventName = HookEvent | LocalEvent;

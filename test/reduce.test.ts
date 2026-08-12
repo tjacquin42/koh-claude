@@ -83,9 +83,8 @@ describe('reduce', () => {
     expect(reduce(a, ev('SessionEnd'))).toBeUndefined();
   });
 
-  it('Focus ne modifie pas l état', () => {
-    const a = reduce(undefined, ev('SessionStart'));
-    expect(reduce(a, ev('Focus'))).toEqual(a);
+  it('un Ack sur une session absente ne crée rien : seul un événement de hook fait naître une session', () => {
+    expect(reduce(undefined, ev('Ack'))).toBeUndefined();
   });
 
   it('un événement en retard ne fait pas régresser le statut', () => {

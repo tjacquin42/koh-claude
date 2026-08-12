@@ -1,5 +1,12 @@
 import { branchOf, originOf, projectOf } from '../events/origin';
-import type { Session, SpoolEvent } from '../events/types';
+import { HOOK_EVENTS, type EventName, type HookEvent, type Session, type SpoolEvent } from '../events/types';
+
+/** Seul un événement de hook Claude Code décrit une session qui existe : un de
+ * nos événements locaux (`Ack`) réagit à une session déjà vue, il ne doit
+ * jamais en faire naître une nouvelle de toutes pièces. */
+function isHookEvent(event: EventName): event is HookEvent {
+  return (HOOK_EVENTS as readonly string[]).includes(event);
+}
 
 function create(ev: SpoolEvent): Session {
   const session: Session = {
@@ -24,7 +31,7 @@ function create(ev: SpoolEvent): Session {
  */
 export function reduce(prev: Session | undefined, ev: SpoolEvent): Session | undefined {
   if (ev.event === 'SessionEnd') return undefined;
-  if (ev.event === 'Focus') return prev ?? create(ev);
+  if (prev === undefined && !isHookEvent(ev.event)) return undefined;
 
   const base = prev ?? create(ev);
 
@@ -81,6 +88,12 @@ export function reduce(prev: Session | undefined, ev: SpoolEvent): Session | und
     case 'Ack':
       if (!late && base.status === 'done_unseen') next.status = 'idle';
       break;
+    default: {
+      // Garde d'exhaustivité : un futur membre d'`EventName` non traité ici
+      // devient une erreur de compilation plutôt qu'un trou silencieux.
+      const exhaustive: never = ev.event;
+      throw new Error(`événement non géré par le réducteur : ${String(exhaustive)}`);
+    }
   }
 
   return next;
