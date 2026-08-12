@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { spoolDirs, type SpoolDirs } from '../src/paths';
 import { ensureDirs, readSessions, writeSession } from '../src/spool/persist';
-import { appendLocalEvent, drain, MAX_CONSECUTIVE_DEFERRALS, SpoolWatcher } from '../src/spool/watcher';
+import { appendLocalEvent, drain, MAX_EVENT_AGE_MS, SpoolWatcher } from '../src/spool/watcher';
 
 // `node:fs/promises` est un module natif : ses exports ne sont pas
 // redéfinissables via vi.spyOn. On le mocke entièrement, en délégant à
@@ -58,11 +58,13 @@ let home: string;
 let dirs: SpoolDirs;
 
 // Horloge de test, sans rapport avec Date.now() : les `at` des événements
-// restent de petits entiers lisibles (1, 2, 3…), et NOW leur est largement
-// postérieur tout en restant à des années-lumière du seuil de purge de 24 h
+// restent de petits entiers lisibles (1, 2, 3…). NOW leur est légèrement
+// postérieur (l'âge de ces événements reste sous MAX_EVENT_AGE_MS, sans quoi
+// un échec induit dans ces tests serait immédiatement écarté au lieu d'être
+// différé), tout en restant à des années-lumière du seuil de purge de 24 h
 // (SESSION_PURGE_MS = 86 400 000 ms) — aucun de ces tests ne doit purger une
 // session par accident.
-const NOW = 1_000_000;
+const NOW = 1_000;
 
 async function dropEvent(name: string, body: unknown): Promise<void> {
   await writeFile(join(dirs.events, name), JSON.stringify(body), 'utf8');
@@ -253,86 +255,89 @@ describe('drain — pannes d écriture (C2)', () => {
 });
 
 describe('drain — échec permanent (N3)', () => {
-  it("après MAX_CONSECUTIVE_DEFERRALS échecs consécutifs, l'événement est écarté vers rejected/ avec sa raison, et signalé", async () => {
-    await dropEvent('1-1-SessionStart.json', hook('SessionStart', 1));
+  it("un événement déjà plus vieux que MAX_EVENT_AGE_MS qui échoue est écarté vers rejected/ avec sa raison, dès le premier passage", async () => {
+    // Horodatage réaliste (pas un petit entier de confort de lecture) :
+    // c'est lui, et lui seul, qui détermine l'âge — aucun état accumulé.
+    const createdAt = 10_000_000;
+    await dropEvent(`${createdAt}-1-SessionStart.json`, hook('SessionStart', 1));
     const err = Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
     // Seule sessions/ est en panne (comme sessions/ passé en 0555 dans la
     // revue) : l'écriture de la raison dans rejected/ doit encore réussir.
     writeFileOverride.current = (path) => (path.includes(dirs.sessions) ? Promise.reject(err) : undefined);
 
-    // Une carte partagée entre plusieurs appels : simule la même fenêtre qui
-    // retente à chaque tick, comme le fait SpoolWatcher via son propre champ.
-    const failureCounts = new Map<string, number>();
-    let res;
-    for (let i = 0; i < MAX_CONSECUTIVE_DEFERRALS; i += 1) {
-      res = await drain(dirs, NOW, failureCounts);
-    }
+    // Un seul appel — comme le ferait une fenêtre qui n'a jamais vu cet
+    // événement, ouverte pour la première fois après que l'événement a
+    // dépassé l'âge limite : aucun historique de tentatives à accumuler.
+    const res = await drain(dirs, createdAt + MAX_EVENT_AGE_MS + 1);
     writeFileOverride.current = undefined;
 
-    expect(res?.deferred).toBe(0);
-    expect(res?.rejectedPermanently).toEqual(['1-1-SessionStart.json']);
-    expect(res?.rejected).toBe(1);
+    expect(res.deferred).toBe(0);
+    expect(res.rejectedPermanently).toEqual([`${createdAt}-1-SessionStart.json`]);
+    expect(res.rejected).toBe(1);
     expect(readdirSync(dirs.events).filter((f) => f.endsWith('.json'))).toHaveLength(0);
 
     const rejectedFiles = readdirSync(dirs.rejected);
-    expect(rejectedFiles).toContain('1-1-SessionStart.json');
-    expect(rejectedFiles).toContain('1-1-SessionStart.json.reason.txt');
-    const reason = await readFile(join(dirs.rejected, '1-1-SessionStart.json.reason.txt'), 'utf8');
+    expect(rejectedFiles).toContain(`${createdAt}-1-SessionStart.json`);
+    expect(rejectedFiles).toContain(`${createdAt}-1-SessionStart.json.reason.txt`);
+    const reason = await readFile(join(dirs.rejected, `${createdAt}-1-SessionStart.json.reason.txt`), 'utf8');
     expect(reason).toContain('EACCES');
 
     expect((await readSessions(dirs)).size).toBe(0);
   });
 
-  it("sous MAX_CONSECUTIVE_DEFERRALS, l'événement reste différé et retente au lieu d'être écarté", async () => {
-    await dropEvent('1-1-SessionStart.json', hook('SessionStart', 1));
+  it("sous MAX_EVENT_AGE_MS, l'événement reste différé et retente au lieu d'être écarté — même échec, plus jeune", async () => {
+    const createdAt = 10_000_000;
+    await dropEvent(`${createdAt}-1-SessionStart.json`, hook('SessionStart', 1));
     const err = Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
     writeFileOverride.current = () => Promise.reject(err);
 
-    const failureCounts = new Map<string, number>();
-    let res;
-    for (let i = 0; i < MAX_CONSECUTIVE_DEFERRALS - 1; i += 1) {
-      res = await drain(dirs, NOW, failureCounts);
-    }
+    // Encore bien en-dessous du seuil.
+    const res = await drain(dirs, createdAt + MAX_EVENT_AGE_MS - 1);
     writeFileOverride.current = undefined;
 
-    expect(res?.rejectedPermanently).toEqual([]);
+    expect(res.rejectedPermanently).toEqual([]);
+    expect(res.deferred).toBe(1);
     expect(readdirSync(dirs.events).filter((f) => f.endsWith('.json'))).toHaveLength(1);
     expect(readdirSync(dirs.rejected).filter((f) => f.endsWith('.json') || f.endsWith('.txt'))).toHaveLength(0);
   });
 
-  it('un succès réinitialise le compteur : il ne suffit pas de deux échecs répartis avant et après une réussite', async () => {
-    await dropEvent('1-1-SessionStart.json', hook('SessionStart', 1));
+  it("la décision ne dépend d'aucun état en mémoire : deux appels indépendants (deux « fenêtres », aucune carte partagée) sur un événement du même âge tranchent pareil", async () => {
+    const createdAt = 10_000_000;
     const err = Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
-    const failureCounts = new Map<string, number>();
+    writeFileOverride.current = (path) => (path.includes(dirs.sessions) ? Promise.reject(err) : undefined);
 
-    writeFileOverride.current = () => Promise.reject(err);
-    await drain(dirs, NOW, failureCounts); // 1er échec
-    expect(failureCounts.get('1-1-SessionStart.json')).toBe(1);
+    // « Fenêtre A », jamais ouverte avant : un seul appel à drain(), sans
+    // rien en mémoire, événement déjà vieux.
+    await dropEvent(`${createdAt}-1-SessionStart.json`, hook('SessionStart', 1, { session_id: 's-a' }));
+    const resA = await drain(dirs, createdAt + MAX_EVENT_AGE_MS + 1);
+    expect(resA.rejectedPermanently).toEqual([`${createdAt}-1-SessionStart.json`]);
 
+    // « Fenêtre B », tout aussi neuve, sur un second événement du même âge
+    // relatif (même écart entre son horodatage et `now`) : même verdict, au
+    // premier essai, sans avoir jamais rien accumulé sur CET événement.
+    await dropEvent(`${createdAt}-2-SessionStart.json`, hook('SessionStart', 1, { session_id: 's-b' }));
+    const resB = await drain(dirs, createdAt + MAX_EVENT_AGE_MS + 1);
     writeFileOverride.current = undefined;
-    const success = await drain(dirs, NOW, failureCounts); // réussit : compteur nettoyé
-    expect(success.applied).toBe(1);
-    expect(failureCounts.has('1-1-SessionStart.json')).toBe(false);
-    expect((await readSessions(dirs)).get('s1')?.startedAt).toBe(1);
+
+    expect(resB.rejectedPermanently).toEqual([`${createdAt}-2-SessionStart.json`]);
   });
 
-  it('SpoolWatcher.tick() signale une fois via onError quand un événement est écarté définitivement', async () => {
-    await dropEvent('1-1-SessionStart.json', hook('SessionStart', 1));
+  it('SpoolWatcher.tick() signale une fois via onError quand un événement est écarté définitivement, dès le premier tick', async () => {
+    const createdAt = 10_000_000;
+    await dropEvent(`${createdAt}-1-SessionStart.json`, hook('SessionStart', 1));
     const err = Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
     writeFileOverride.current = () => Promise.reject(err);
 
     const onChange = vi.fn();
     const onError = vi.fn();
-    const watcher = new SpoolWatcher(dirs, onChange, onError, () => NOW);
+    const watcher = new SpoolWatcher(dirs, onChange, onError, () => createdAt + MAX_EVENT_AGE_MS + 1);
     const internal = watcher as unknown as { tick: () => Promise<void> };
 
-    for (let i = 0; i < MAX_CONSECUTIVE_DEFERRALS; i += 1) {
-      await internal.tick();
-    }
+    await internal.tick();
     writeFileOverride.current = undefined;
 
     expect(onError).toHaveBeenCalledTimes(1);
-    expect(readdirSync(dirs.rejected)).toContain('1-1-SessionStart.json');
+    expect(readdirSync(dirs.rejected)).toContain(`${createdAt}-1-SessionStart.json`);
   });
 });
 
@@ -452,7 +457,7 @@ describe("drain — écriture tardive après abandon (N2 suite)", () => {
     };
 
     const signal = { abandoned: false };
-    const drainO = drain(dirs, NOW, new Map(), signal);
+    const drainO = drain(dirs, NOW, signal);
     await reached; // O a lancé la lecture de sessions/s1.json ; pas encore livrée.
 
     // Un « passage plus récent » traite un Stop pour la même session, en
@@ -489,7 +494,7 @@ describe("drain — écriture tardive après abandon (N2 suite)", () => {
   it("sans abandon (signal.abandoned reste false), le comportement est inchangé : l'événement s'applique normalement", async () => {
     await dropEvent('1-1-SessionStart.json', hook('SessionStart', 1));
     const signal = { abandoned: false };
-    const res = await drain(dirs, NOW, new Map(), signal);
+    const res = await drain(dirs, NOW, signal);
     expect(res.applied).toBe(1);
     expect((await readSessions(dirs)).get('s1')?.startedAt).toBe(1);
   });

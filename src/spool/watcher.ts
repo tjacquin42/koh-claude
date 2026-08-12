@@ -13,31 +13,58 @@ export interface DrainResult {
   rejected: number;
   /** Traité mais pas écrit (panne d'E/S externe à l'événement) : laissé en
    * place dans events/ pour un prochain drain, ni perdu ni classé invalide —
-   * sauf s'il atteint MAX_CONSECUTIVE_DEFERRALS, voir `rejectedPermanently`. */
+   * sauf s'il a dépassé MAX_EVENT_AGE_MS, voir `rejectedPermanently`. */
   deferred: number;
   /** Sessions supprimées pour n'avoir reçu aucun événement depuis plus de
    * `SESSION_PURGE_MS` (spec §5). */
   purged: string[];
-  /** Noms des événements écartés vers rejected/ après avoir échoué
-   * MAX_CONSECUTIVE_DEFERRALS fois de suite (N3) : sous-ensemble de ce qui
-   * compte dans `rejected`, distingué pour que l'appelant puisse signaler
-   * l'abandon plutôt que de le laisser invisible. */
+  /** Noms des événements écartés vers rejected/ pour avoir échoué alors
+   * qu'ils avaient déjà dépassé MAX_EVENT_AGE_MS (N3) : sous-ensemble de ce
+   * qui compte dans `rejected`, distingué pour que l'appelant puisse
+   * signaler l'abandon plutôt que de le laisser invisible. */
   rejectedPermanently: string[];
 }
 
 /**
- * Au-delà de ce nombre d'échecs consécutifs du même événement (même nom de
- * fichier — chaque événement a un nom unique, donc c'est bien le même
- * fichier qu'on retente), on cesse de le retenter : il est déplacé vers
- * rejected/ avec sa raison plutôt que de tourner en boucle indéfiniment sans
- * que personne ne l'apprenne (N3). Petit délibérément : un échec transitoire
- * (disque plein un instant) se résorbe en un ou deux ticks ; au-delà, ce
- * n'est plus transitoire.
+ * Au-delà de cet âge, un événement qui échoue encore n'est plus considéré
+ * transitoire : il est déplacé vers rejected/ avec sa raison plutôt que
+ * retenté indéfiniment en silence (N3). L'âge se lit dans le nom de fichier
+ * de l'événement lui-même (l'horodatage qui l'ouvre, déjà utilisé pour
+ * l'ordre de traitement) — pas dans un compteur de tentatives tenu en
+ * mémoire : ce dernier confondait « échoue depuis 2 ms, 3 fois de suite »
+ * (sous une rafale de centaines d'événements, un compteur épuise ses
+ * tentatives en quelques millisecondes réelles) avec « échoue depuis
+ * longtemps », dépendait d'un état par fenêtre (jamais partagé, remis à zéro
+ * à chaque réouverture), et donnait un résultat différent selon la fenêtre
+ * qui comptait. Une durée n'a aucun de ces défauts : la même pour toutes les
+ * fenêtres, indépendante de la charge, indifférente à la fermeture d'une
+ * fenêtre.
+ *
+ * 5 minutes : très généreux comparé au temps d'un tick, même chargé (~30 s
+ * au pire pour ~660 événements, voir GUARD_TIMEOUT_MS) — un événement qui
+ * échoue encore après 5 minutes a déjà survécu à des dizaines de passages,
+ * pas juste à un pic de charge. Et très en-dessous de l'échelle « oublié
+ * pendant des heures » : rien à voir avec SESSION_PURGE_MS (24 h), qui
+ * concerne l'absence totale d'événement, pas un échec actif et répété.
  */
-export const MAX_CONSECUTIVE_DEFERRALS = 3;
+export const MAX_EVENT_AGE_MS = 5 * 60_000;
 
 function isErrnoException(err: unknown): err is NodeJS.ErrnoException {
   return err instanceof Error && 'code' in err;
+}
+
+/**
+ * L'horodatage qui ouvre le nom de fichier d'un événement (bridge :
+ * `<at>-<pid>-<event>.json` ; appendLocalEvent : `<at>-<pid>-<seq>-<event>.json`),
+ * en millisecondes epoch. `undefined` pour un nom qui ne commence pas par un
+ * nombre — ne devrait pas arriver pour un fichier réellement déposé par ce
+ * projet, mais ne pas pouvoir dater un événement ne doit jamais se traduire
+ * par « donc il est vieux » : voir l'appelant.
+ */
+function eventTimestamp(name: string): number | undefined {
+  const stamp = name.split('-', 1)[0];
+  const at = stamp === undefined || stamp.length === 0 ? NaN : Number(stamp);
+  return Number.isFinite(at) ? at : undefined;
 }
 
 /**
@@ -54,12 +81,6 @@ function isErrnoException(err: unknown): err is NodeJS.ErrnoException {
  * entre deux itérations de cette boucle, et il faut toujours réduire contre
  * le plus récent, pas contre ce qui était vrai au tout début de ce drain.
  *
- * `failureCounts` (par défaut : une carte neuve, donc aucun suivi entre
- * appels si l'appelant n'en fournit pas une persistante) compte les échecs
- * consécutifs de chaque événement par son nom de fichier — unique par
- * construction, donc « le même événement » d'un appel à l'autre. Un
- * `SpoolWatcher` la possède et la fait persister entre ses ticks.
- *
  * `signal` (fourni par `ReentrantGuard.run()`, absent si on appelle `drain`
  * hors d'une garde) protège contre un défaut qu'I1 ne couvre pas : I1 relit
  * l'état d'une session juste avant de la RÉDUIRE, ce qui protège la lecture,
@@ -72,12 +93,7 @@ function isErrnoException(err: unknown): err is NodeJS.ErrnoException {
  * avant de supprimer l'événement » est ce qui rend cet abandon sans perte —
  * l'événement, ni appliqué ni supprimé, sera retraité par le passage frais.
  */
-export async function drain(
-  dirs: SpoolDirs,
-  now: number,
-  failureCounts: Map<string, number> = new Map(),
-  signal?: AbandonSignal,
-): Promise<DrainResult> {
+export async function drain(dirs: SpoolDirs, now: number, signal?: AbandonSignal): Promise<DrainResult> {
   let names: string[] = [];
   try {
     names = await readdir(dirs.events);
@@ -129,7 +145,6 @@ export async function drain(
       } else {
         await writeSession(dirs, next);
       }
-      failureCounts.delete(name);
     } catch (err) {
       // Échec externe à cet événement précis (disque plein, sessions/ non
       // inscriptible, volume en lecture seule). Sans ce `continue`,
@@ -138,15 +153,16 @@ export async function drain(
       // traités — et comme le tri est chronologique, le premier fichier
       // fautif bloquerait tous les suivants à chaque drain, dans toutes les
       // fenêtres.
-      const attempts = (failureCounts.get(name) ?? 0) + 1;
-      if (attempts >= MAX_CONSECUTIVE_DEFERRALS) {
-        // Échoue trop souvent de suite pour être encore transitoire : on
-        // cesse de le retenter indéfiniment en silence, et on l'écarte
-        // — visible, avec sa raison — plutôt que de le perdre.
-        failureCounts.delete(name);
+      const createdAt = eventTimestamp(name);
+      const age = createdAt !== undefined ? now - createdAt : undefined;
+      if (age !== undefined && age > MAX_EVENT_AGE_MS) {
+        // Échoue encore alors qu'il est déjà plus vieux que ce qu'un échec
+        // transitoire justifie : on cesse de le retenter indéfiniment en
+        // silence, et on l'écarte — visible, avec sa raison — plutôt que de
+        // le perdre.
         rejected += 1;
         rejectedPermanently.push(name);
-        const reason = `Échec après ${attempts} tentatives : ${err instanceof Error ? err.message : String(err)}`;
+        const reason = `Échec à ${age} ms d'âge (> ${MAX_EVENT_AGE_MS} ms) : ${err instanceof Error ? err.message : String(err)}`;
         await writeFile(join(dirs.rejected, `${name}.reason.txt`), reason, 'utf8').catch(() => undefined);
         await rename(path, join(dirs.rejected, name)).catch(() => undefined);
       } else {
@@ -154,7 +170,6 @@ export async function drain(
         // le laisse en place pour qu'un prochain drain — dans cette fenêtre
         // ou une autre — le retente, plutôt que de le perdre ou de le
         // classer comme donnée invalide (il ne l'est pas encore).
-        failureCounts.set(name, attempts);
         deferred += 1;
       }
       continue;
@@ -227,10 +242,6 @@ export class SpoolWatcher {
   private watcher: FSWatcher | undefined;
   private timer: NodeJS.Timeout | undefined;
   private readonly guard = new ReentrantGuard(GUARD_TIMEOUT_MS);
-  // Persiste entre les ticks de CETTE fenêtre : c'est ce qui permet de
-  // compter des échecs consécutifs à travers plusieurs drains (N3), plutôt
-  // que de repartir de zéro à chaque appel.
-  private readonly failureCounts = new Map<string, number>();
 
   constructor(
     private readonly dirs: SpoolDirs,
@@ -270,14 +281,15 @@ export class SpoolWatcher {
 
   private tick(): Promise<void> {
     return this.guard.run(async (signal) => {
-      const res = await drain(this.dirs, this.now(), this.failureCounts, signal);
+      const res = await drain(this.dirs, this.now(), signal);
       if (res.rejectedPermanently.length > 0) {
         // Signalement dédié : drain() n'a pas échoué (les autres événements
-        // se sont appliqués normalement), mais celui-ci a été abandonné
-        // après des échecs répétés — ça ne doit pas disparaître en silence.
+        // se sont appliqués normalement), mais celui-ci a échoué alors qu'il
+        // était déjà trop vieux pour que ce soit encore transitoire — ça ne
+        // doit pas disparaître en silence.
         this.onError(
           new Error(
-            `${res.rejectedPermanently.length} événement(s) écarté(s) définitivement après échecs répétés`,
+            `${res.rejectedPermanently.length} événement(s) écarté(s) définitivement (échec persistant au-delà de ${MAX_EVENT_AGE_MS} ms)`,
           ),
         );
       }
