@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { spoolDirs, type SpoolDirs } from '../src/paths';
 import { ensureDirs, readSessions, writeSession } from '../src/spool/persist';
-import { appendLocalEvent, drain, SpoolWatcher } from '../src/spool/watcher';
+import { appendLocalEvent, drain, MAX_CONSECUTIVE_DEFERRALS, SpoolWatcher } from '../src/spool/watcher';
 
 // `node:fs/promises` est un module natif : ses exports ne sont pas
 // redéfinissables via vi.spyOn. On le mocke entièrement, en délégant à
@@ -249,6 +249,90 @@ describe('drain — pannes d écriture (C2)', () => {
 
     expect(second.applied).toBe(1);
     expect((await readSessions(dirs)).get('s1')?.startedAt).toBe(1);
+  });
+});
+
+describe('drain — échec permanent (N3)', () => {
+  it("après MAX_CONSECUTIVE_DEFERRALS échecs consécutifs, l'événement est écarté vers rejected/ avec sa raison, et signalé", async () => {
+    await dropEvent('1-1-SessionStart.json', hook('SessionStart', 1));
+    const err = Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+    // Seule sessions/ est en panne (comme sessions/ passé en 0555 dans la
+    // revue) : l'écriture de la raison dans rejected/ doit encore réussir.
+    writeFileOverride.current = (path) => (path.includes(dirs.sessions) ? Promise.reject(err) : undefined);
+
+    // Une carte partagée entre plusieurs appels : simule la même fenêtre qui
+    // retente à chaque tick, comme le fait SpoolWatcher via son propre champ.
+    const failureCounts = new Map<string, number>();
+    let res;
+    for (let i = 0; i < MAX_CONSECUTIVE_DEFERRALS; i += 1) {
+      res = await drain(dirs, NOW, failureCounts);
+    }
+    writeFileOverride.current = undefined;
+
+    expect(res?.deferred).toBe(0);
+    expect(res?.rejectedPermanently).toEqual(['1-1-SessionStart.json']);
+    expect(res?.rejected).toBe(1);
+    expect(readdirSync(dirs.events).filter((f) => f.endsWith('.json'))).toHaveLength(0);
+
+    const rejectedFiles = readdirSync(dirs.rejected);
+    expect(rejectedFiles).toContain('1-1-SessionStart.json');
+    expect(rejectedFiles).toContain('1-1-SessionStart.json.reason.txt');
+    const reason = await readFile(join(dirs.rejected, '1-1-SessionStart.json.reason.txt'), 'utf8');
+    expect(reason).toContain('EACCES');
+
+    expect((await readSessions(dirs)).size).toBe(0);
+  });
+
+  it("sous MAX_CONSECUTIVE_DEFERRALS, l'événement reste différé et retente au lieu d'être écarté", async () => {
+    await dropEvent('1-1-SessionStart.json', hook('SessionStart', 1));
+    const err = Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+    writeFileOverride.current = () => Promise.reject(err);
+
+    const failureCounts = new Map<string, number>();
+    let res;
+    for (let i = 0; i < MAX_CONSECUTIVE_DEFERRALS - 1; i += 1) {
+      res = await drain(dirs, NOW, failureCounts);
+    }
+    writeFileOverride.current = undefined;
+
+    expect(res?.rejectedPermanently).toEqual([]);
+    expect(readdirSync(dirs.events).filter((f) => f.endsWith('.json'))).toHaveLength(1);
+    expect(readdirSync(dirs.rejected).filter((f) => f.endsWith('.json') || f.endsWith('.txt'))).toHaveLength(0);
+  });
+
+  it('un succès réinitialise le compteur : il ne suffit pas de deux échecs répartis avant et après une réussite', async () => {
+    await dropEvent('1-1-SessionStart.json', hook('SessionStart', 1));
+    const err = Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+    const failureCounts = new Map<string, number>();
+
+    writeFileOverride.current = () => Promise.reject(err);
+    await drain(dirs, NOW, failureCounts); // 1er échec
+    expect(failureCounts.get('1-1-SessionStart.json')).toBe(1);
+
+    writeFileOverride.current = undefined;
+    const success = await drain(dirs, NOW, failureCounts); // réussit : compteur nettoyé
+    expect(success.applied).toBe(1);
+    expect(failureCounts.has('1-1-SessionStart.json')).toBe(false);
+    expect((await readSessions(dirs)).get('s1')?.startedAt).toBe(1);
+  });
+
+  it('SpoolWatcher.tick() signale une fois via onError quand un événement est écarté définitivement', async () => {
+    await dropEvent('1-1-SessionStart.json', hook('SessionStart', 1));
+    const err = Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+    writeFileOverride.current = () => Promise.reject(err);
+
+    const onChange = vi.fn();
+    const onError = vi.fn();
+    const watcher = new SpoolWatcher(dirs, onChange, onError, () => NOW);
+    const internal = watcher as unknown as { tick: () => Promise<void> };
+
+    for (let i = 0; i < MAX_CONSECUTIVE_DEFERRALS; i += 1) {
+      await internal.tick();
+    }
+    writeFileOverride.current = undefined;
+
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(readdirSync(dirs.rejected)).toContain('1-1-SessionStart.json');
   });
 });
 

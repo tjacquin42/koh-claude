@@ -12,12 +12,29 @@ export interface DrainResult {
   applied: number;
   rejected: number;
   /** Traité mais pas écrit (panne d'E/S externe à l'événement) : laissé en
-   * place dans events/ pour un prochain drain, ni perdu ni classé invalide. */
+   * place dans events/ pour un prochain drain, ni perdu ni classé invalide —
+   * sauf s'il atteint MAX_CONSECUTIVE_DEFERRALS, voir `rejectedPermanently`. */
   deferred: number;
   /** Sessions supprimées pour n'avoir reçu aucun événement depuis plus de
    * `SESSION_PURGE_MS` (spec §5). */
   purged: string[];
+  /** Noms des événements écartés vers rejected/ après avoir échoué
+   * MAX_CONSECUTIVE_DEFERRALS fois de suite (N3) : sous-ensemble de ce qui
+   * compte dans `rejected`, distingué pour que l'appelant puisse signaler
+   * l'abandon plutôt que de le laisser invisible. */
+  rejectedPermanently: string[];
 }
+
+/**
+ * Au-delà de ce nombre d'échecs consécutifs du même événement (même nom de
+ * fichier — chaque événement a un nom unique, donc c'est bien le même
+ * fichier qu'on retente), on cesse de le retenter : il est déplacé vers
+ * rejected/ avec sa raison plutôt que de tourner en boucle indéfiniment sans
+ * que personne ne l'apprenne (N3). Petit délibérément : un échec transitoire
+ * (disque plein un instant) se résorbe en un ou deux ticks ; au-delà, ce
+ * n'est plus transitoire.
+ */
+export const MAX_CONSECUTIVE_DEFERRALS = 3;
 
 function isErrnoException(err: unknown): err is NodeJS.ErrnoException {
   return err instanceof Error && 'code' in err;
@@ -36,8 +53,18 @@ function isErrnoException(err: unknown): err is NodeJS.ErrnoException {
  * `await` : une autre fenêtre peut écrire ou supprimer cette même session
  * entre deux itérations de cette boucle, et il faut toujours réduire contre
  * le plus récent, pas contre ce qui était vrai au tout début de ce drain.
+ *
+ * `failureCounts` (par défaut : une carte neuve, donc aucun suivi entre
+ * appels si l'appelant n'en fournit pas une persistante) compte les échecs
+ * consécutifs de chaque événement par son nom de fichier — unique par
+ * construction, donc « le même événement » d'un appel à l'autre. Un
+ * `SpoolWatcher` la possède et la fait persister entre ses ticks.
  */
-export async function drain(dirs: SpoolDirs, now: number): Promise<DrainResult> {
+export async function drain(
+  dirs: SpoolDirs,
+  now: number,
+  failureCounts: Map<string, number> = new Map(),
+): Promise<DrainResult> {
   let names: string[] = [];
   try {
     names = await readdir(dirs.events);
@@ -50,6 +77,7 @@ export async function drain(dirs: SpoolDirs, now: number): Promise<DrainResult> 
   let applied = 0;
   let rejected = 0;
   let deferred = 0;
+  const rejectedPermanently: string[] = [];
 
   for (const name of files) {
     const path = join(dirs.events, name);
@@ -75,18 +103,34 @@ export async function drain(dirs: SpoolDirs, now: number): Promise<DrainResult> 
       } else {
         await writeSession(dirs, next);
       }
-    } catch {
+      failureCounts.delete(name);
+    } catch (err) {
       // Échec externe à cet événement précis (disque plein, sessions/ non
-      // inscriptible, volume en lecture seule) : ni ses effets ni la
-      // suppression de son fichier n'ont eu lieu. On le laisse en place pour
-      // qu'un prochain drain — dans cette fenêtre ou une autre — le retente,
-      // plutôt que de le perdre ou de le classer comme donnée invalide (il ne
-      // l'est pas). Sans ce `continue`, l'exception remonterait et
-      // arrêterait la boucle : les événements suivants, pourtant sans
-      // rapport avec cette panne, resteraient non traités — et comme le tri
-      // est chronologique, le premier fichier fautif bloquerait tous les
-      // suivants à chaque drain, dans toutes les fenêtres.
-      deferred += 1;
+      // inscriptible, volume en lecture seule). Sans ce `continue`,
+      // l'exception remonterait et arrêterait la boucle : les événements
+      // suivants, pourtant sans rapport avec cette panne, resteraient non
+      // traités — et comme le tri est chronologique, le premier fichier
+      // fautif bloquerait tous les suivants à chaque drain, dans toutes les
+      // fenêtres.
+      const attempts = (failureCounts.get(name) ?? 0) + 1;
+      if (attempts >= MAX_CONSECUTIVE_DEFERRALS) {
+        // Échoue trop souvent de suite pour être encore transitoire : on
+        // cesse de le retenter indéfiniment en silence, et on l'écarte
+        // — visible, avec sa raison — plutôt que de le perdre.
+        failureCounts.delete(name);
+        rejected += 1;
+        rejectedPermanently.push(name);
+        const reason = `Échec après ${attempts} tentatives : ${err instanceof Error ? err.message : String(err)}`;
+        await writeFile(join(dirs.rejected, `${name}.reason.txt`), reason, 'utf8').catch(() => undefined);
+        await rename(path, join(dirs.rejected, name)).catch(() => undefined);
+      } else {
+        // Ni ses effets ni la suppression de son fichier n'ont eu lieu. On
+        // le laisse en place pour qu'un prochain drain — dans cette fenêtre
+        // ou une autre — le retente, plutôt que de le perdre ou de le
+        // classer comme donnée invalide (il ne l'est pas encore).
+        failureCounts.set(name, attempts);
+        deferred += 1;
+      }
       continue;
     }
 
@@ -109,7 +153,7 @@ export async function drain(dirs: SpoolDirs, now: number): Promise<DrainResult> 
 
   const purged = await purgeStaleSessions(dirs, now, SESSION_PURGE_MS);
 
-  return { applied, rejected, deferred, purged };
+  return { applied, rejected, deferred, purged, rejectedPermanently };
 }
 
 export interface LocalEventInput {
@@ -157,6 +201,10 @@ export class SpoolWatcher {
   private watcher: FSWatcher | undefined;
   private timer: NodeJS.Timeout | undefined;
   private readonly guard = new ReentrantGuard(GUARD_TIMEOUT_MS);
+  // Persiste entre les ticks de CETTE fenêtre : c'est ce qui permet de
+  // compter des échecs consécutifs à travers plusieurs drains (N3), plutôt
+  // que de repartir de zéro à chaque appel.
+  private readonly failureCounts = new Map<string, number>();
 
   constructor(
     private readonly dirs: SpoolDirs,
@@ -196,7 +244,17 @@ export class SpoolWatcher {
 
   private tick(): Promise<void> {
     return this.guard.run(async () => {
-      const res = await drain(this.dirs, this.now());
+      const res = await drain(this.dirs, this.now(), this.failureCounts);
+      if (res.rejectedPermanently.length > 0) {
+        // Signalement dédié : drain() n'a pas échoué (les autres événements
+        // se sont appliqués normalement), mais celui-ci a été abandonné
+        // après des échecs répétés — ça ne doit pas disparaître en silence.
+        this.onError(
+          new Error(
+            `${res.rejectedPermanently.length} événement(s) écarté(s) définitivement après échecs répétés`,
+          ),
+        );
+      }
       if (res.applied > 0 || res.purged.length > 0) this.onChange(res);
     }, this.onError);
   }
