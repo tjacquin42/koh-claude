@@ -518,15 +518,41 @@ describe("drain — écriture tardive après abandon (N2 suite)", () => {
 });
 
 describe('SpoolWatcher', () => {
-  it('start() tolère un dossier events absent, sans perdre la capacité de consommer ce qui arrive ensuite', async () => {
+  it('start() tolère un dossier events absent, sans lever, et arme quand même le filet périodique', () => {
+    // Vérifié seulement structurellement, jamais via le déclenchement réel du
+    // `void this.tick()` implicite de start() : ce tick d'arrière-plan existe
+    // (il vise à consommer ce qui traînerait déjà), mais l'observer aurait
+    // exigé d'attendre sa résolution sans moyen déterministe de le faire —
+    // exactement le genre de dépendance au minutage qu'on élimine, pas qu'on
+    // réduit. Le comportement « un événement déposé après coup est bien
+    // consommé » est prouvé séparément ci-dessous, sans jamais appeler start().
     const missingDirs = spoolDirs(join(home, 'pas-encore-cree'));
     const onChange = vi.fn();
     const onError = vi.fn();
     const watcher = new SpoolWatcher(missingDirs, onChange, onError, () => NOW);
+    const internal = watcher as unknown as { watcher?: unknown; timer?: NodeJS.Timeout };
 
     expect(() => watcher.start()).not.toThrow();
+    expect(internal.watcher).toBeUndefined(); // fs.watch a échoué sur un dossier absent
+    expect(internal.timer).toBeDefined(); // le filet de secours est quand même armé
 
-    // Le dossier apparaît après coup (ex : ensureDirs appelé ailleurs), puis un événement y est déposé.
+    watcher.stop();
+  });
+
+  it("un événement déposé après l'apparition tardive du dossier events est bien consommé, piloté par tick() (jamais par le void this.tick() implicite de start(), ni par le minuteur)", async () => {
+    const missingDirs = spoolDirs(join(home, 'pas-encore-cree'));
+    const onChange = vi.fn();
+    const onError = vi.fn();
+    const watcher = new SpoolWatcher(missingDirs, onChange, onError, () => NOW);
+    const internal = watcher as unknown as { tick: () => Promise<void> };
+
+    // Le dossier events n'existe pas encore quand ce SpoolWatcher est
+    // construit (scénario réel : l'extension démarre avant tout hook).
+    // start() n'est jamais appelé ici : son void this.tick() implicite, en
+    // arrière-plan, entrerait en course avec l'appel explicite ci-dessous —
+    // c'est exactement la course que la revue a mesurée (7 échecs sur 10
+    // exécutions complètes avant ce correctif). Le dossier apparaît après
+    // coup (ex : ensureDirs appelé ailleurs), puis un événement y est déposé.
     await ensureDirs(missingDirs);
     await writeFile(
       join(missingDirs.events, '1-1-SessionStart.json'),
@@ -534,14 +560,11 @@ describe('SpoolWatcher', () => {
       'utf8',
     );
 
-    // Simule le tour de filet suivant sans attendre les 5 secondes réelles.
-    await (watcher as unknown as { tick: () => Promise<void> }).tick();
+    await internal.tick();
 
     expect(onChange).toHaveBeenCalledTimes(1);
     expect((await readSessions(missingDirs)).get('s1')?.startedAt).toBe(1);
     expect(onError).not.toHaveBeenCalled();
-
-    watcher.stop();
   });
 
   it('stop() ferme le FSWatcher et efface le minuteur de secours ; le déclenchement est piloté par tick(), jamais par fs.watch ou un délai', async () => {
