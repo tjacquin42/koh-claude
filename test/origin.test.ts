@@ -19,17 +19,17 @@ describe('originOf', () => {
 
 describe('projectOf et branchOf', () => {
   it('prend le dossier racine hors worktree', () => {
-    expect(projectOf('/Users/jack/DEV/pity-tidy')).toBe('pity-tidy');
-    expect(branchOf('/Users/jack/DEV/pity-tidy')).toBeUndefined();
+    expect(projectOf('/Users/dev/projet')).toBe('projet');
+    expect(branchOf('/Users/dev/projet')).toBeUndefined();
   });
 
   it('remonte au projet depuis un worktree et en tire la branche', () => {
-    expect(projectOf('/Users/jack/DEV/pity-tidy/.worktrees/feat-seo')).toBe('pity-tidy');
-    expect(branchOf('/Users/jack/DEV/pity-tidy/.worktrees/feat-seo')).toBe('feat-seo');
+    expect(projectOf('/Users/dev/projet/.worktrees/feat-seo')).toBe('projet');
+    expect(branchOf('/Users/dev/projet/.worktrees/feat-seo')).toBe('feat-seo');
   });
 
   it('gère aussi .claude-worktrees', () => {
-    expect(projectOf('/Users/jack/DEV/Vetibble/.claude-worktrees/analytics')).toBe('Vetibble');
-    expect(branchOf('/Users/jack/DEV/Vetibble/.claude-worktrees/analytics')).toBe('analytics');
+    expect(projectOf('/Users/dev/autre-projet/.claude-worktrees/analytics')).toBe('autre-projet');
+    expect(branchOf('/Users/dev/autre-projet/.claude-worktrees/analytics')).toBe('analytics');
   });
 });

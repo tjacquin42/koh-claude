@@ -11,7 +11,7 @@ function ev(event: EventName, extra: Partial<SpoolEvent> = {}): SpoolEvent {
     entrypoint: 'claude-vscode',
     termProgram: 'vscode',
     sessionId: 's1',
-    cwd: '/Users/jack/DEV/pity-tidy',
+    cwd: '/Users/dev/projet',
     ...extra,
   };
 }
@@ -20,7 +20,7 @@ describe('reduce', () => {
   it('crée la session au SessionStart, à l arrêt', () => {
     const s = reduce(undefined, ev('SessionStart', { transcriptPath: '/t.jsonl' }));
     expect(s?.status).toBe('idle');
-    expect(s?.project).toBe('pity-tidy');
+    expect(s?.project).toBe('projet');
     expect(s?.origin).toBe('vscode');
     expect(s?.transcriptPath).toBe('/t.jsonl');
     expect(s?.startedAt).toBeDefined();
@@ -103,12 +103,12 @@ describe('reduce', () => {
   it('tient plusieurs sessions et un worktree', () => {
     const map = reduceAll([
       ev('SessionStart', { sessionId: 'a' }),
-      ev('PreToolUse', { sessionId: 'b', cwd: '/Users/jack/DEV/pity-tidy/.worktrees/feat-seo' }),
+      ev('PreToolUse', { sessionId: 'b', cwd: '/Users/dev/projet/.worktrees/feat-seo' }),
       ev('Stop', { sessionId: 'a' }),
     ]);
     expect(map.size).toBe(2);
     expect(map.get('a')?.status).toBe('done_unseen');
     expect(map.get('b')?.branch).toBe('feat-seo');
-    expect(map.get('b')?.project).toBe('pity-tidy');
+    expect(map.get('b')?.project).toBe('projet');
   });
 });
