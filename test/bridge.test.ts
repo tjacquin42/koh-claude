@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readdirSync, readFileSync, chmodSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -73,5 +73,23 @@ describe('koh-claude-bridge', () => {
     chmodSync(events, 0o500);
     expect(run('Stop', '{"session_id":"abc","cwd":"/tmp/p"}')).toBe(0);
     chmodSync(events, 0o700);
+  });
+
+  it("ne perturbe jamais la session Claude Code qui l'appelle : rien sur stderr même quand le spool n'est pas inscriptible (M1)", () => {
+    // execFileSync ne donne accès à stderr qu'en cas d'échec : spawnSync le
+    // capture toujours, sans dépendre du code de retour.
+    const events = join(home, 'events');
+    mkdirSync(events, { recursive: true });
+    chmodSync(events, 0o500);
+    const res = spawnSync(BRIDGE, ['Stop'], {
+      input: '{"session_id":"abc","cwd":"/tmp/p"}',
+      env: { ...process.env, KOH_CLAUDE_HOME: home },
+      encoding: 'utf8',
+    });
+    chmodSync(events, 0o700);
+
+    expect(res.status).toBe(0);
+    expect(res.stdout).toBe('');
+    expect(res.stderr).toBe('');
   });
 });

@@ -9,6 +9,15 @@ EVENT="${1:-unknown}"
 DIR="${KOH_CLAUDE_HOME:-$HOME/.koh-claude}/events"
 [[ -d "$DIR" ]] || exit 0
 
+# Déplacer un `2>/dev/null` sur chaque redirection ne suffit pas : zsh peut
+# signaler l'échec de la redirection elle-même (ex : permission refusée sur
+# "> $TMP") sur son propre stderr, avant que la commande protégée ne
+# s'exécute. `exec` redirige le stderr du script entier une fois pour toutes,
+# ce qui couvre aussi ce cas. Invariant du bridge : ne jamais perturber la
+# session Claude Code qui l'appelle, ni sur stdout, ni sur stderr, ni par un
+# code de retour non nul.
+exec 2>/dev/null
+
 STAMP="$(printf '%.0f' $(( ${EPOCHREALTIME:-0} * 1000 )) 2>/dev/null)"
 [[ -n "$STAMP" && "$STAMP" != "0" ]] || STAMP="$(/bin/date +%s)000"
 
