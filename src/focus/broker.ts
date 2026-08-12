@@ -6,6 +6,7 @@ import * as vscode from 'vscode';
 import type { SpoolDirs } from '../paths';
 import type { Session } from '../events/types';
 import { claims } from './claims';
+import { ReentrantGuard } from '../lib/reentrant-guard';
 
 const FOCUS_COMMAND = 'claude-vscode.editor.openLast';
 
@@ -18,9 +19,16 @@ const STALE_REQUEST_MS = 30_000;
 export class FocusBroker {
   private watcher: FSWatcher | undefined;
   private timer: NodeJS.Timeout | undefined;
-  private running = false;
+  private readonly guard = new ReentrantGuard();
   private warnedMissingCommand = false;
+  private consumeFailureWarned = false;
   private readonly fallbacks = new Map<string, NodeJS.Timeout>();
+  // `process.pid` est constant sur toute la durée de vie du process de
+  // l'extension (contrairement au bridge, où un process équivaut à un appel) :
+  // un compteur incrémenté en synchrone à chaque appel de `request` l'est,
+  // même pour deux clics sans `await` entre eux — même défaut, même
+  // traitement qu'`appendLocalEvent` (spool/watcher.ts).
+  private requestSeq = 0;
 
   constructor(private readonly dirs: SpoolDirs) {}
 
@@ -34,13 +42,21 @@ export class FocusBroker {
       await this.focusHere();
       return;
     }
+    const seq = (this.requestSeq += 1);
     const name = join(this.dirs.requests, `focus-${s.id}.json`);
-    const tmp = join(this.dirs.requests, `.tmp-${s.id}-${process.pid}`);
+    const tmp = join(this.dirs.requests, `.tmp-${s.id}-${process.pid}-${seq}`);
     const body = JSON.stringify({ sessionId: s.id, cwd: s.cwd, at: Date.now() });
     // Fichier temporaire puis renommage : une autre fenêtre réveillée par le
     // même fs.watch ne doit jamais lire un fichier partiel.
     await writeFile(tmp, body, 'utf8');
     await rename(tmp, name);
+
+    // Un second clic sur la même session avant l'expiration du premier repli
+    // ne doit pas laisser le premier minuteur courir sans plus être suivi
+    // dans `fallbacks` : `stop()` ne verrait plus que le second, et le
+    // premier pourrait lancer `code -r` après la libération de l'extension.
+    const existing = this.fallbacks.get(s.id);
+    if (existing !== undefined) clearTimeout(existing);
 
     // Si personne ne l'a consommée, aucune fenêtre ne détient ce projet : on l'ouvre.
     const timer = setTimeout(() => {
@@ -98,14 +114,19 @@ export class FocusBroker {
     void this.tick();
   }
 
-  private async tick(): Promise<void> {
-    if (this.running) return; // pas de vidange concurrente dans la même fenêtre
-    this.running = true;
-    try {
-      await this.consume();
-    } finally {
-      this.running = false;
-    }
+  private tick(): Promise<void> {
+    return this.guard.run(
+      () => this.consume(),
+      () => {
+        // Un avertissement par cause suffit : même précédent que
+        // `warnedMissingCommand` ci-dessus.
+        if (this.consumeFailureWarned) return;
+        this.consumeFailureWarned = true;
+        void vscode.window.showWarningMessage(
+          'Koh-Claude : la consommation des requêtes de focus a échoué — nouvelle tentative automatique.',
+        );
+      },
+    );
   }
 
   /** Ne consomme que les requêtes qui concernent les dossiers de cette fenêtre. */
