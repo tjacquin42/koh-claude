@@ -1,6 +1,6 @@
 import { HOOK_EVENTS } from '../events/types';
 
-/** Marqueur qui rend nos entrées reconnaissables pour la désinstallation. */
+/** Marqueur qui rend nos entrées reconnaissables : le nom de fichier de notre bridge. */
 export const KOH_MARKER = 'koh-claude-bridge';
 
 interface HookCommand {
@@ -22,8 +22,33 @@ function isMatcher(v: unknown): v is HookMatcher {
   return isRecord(v) && Array.isArray(v['hooks']);
 }
 
+// La forme exacte, et strictement celle-là, que `installHooks` écrit pour un
+// `bridgePath` et un `event` donnés — voir la construction de `command` plus bas.
+// Capturer le chemin une fois et le retrouver par rétro-référence (`\1`) garantit
+// que les deux occurrences sont identiques, comme dans le gabarit d'origine.
+const OUR_COMMAND_RE = new RegExp(
+  `^/bin/sh -c '\\[ -x "([^"]+)" \\] && "\\1" (?:${HOOK_EVENTS.join('|')}); exit 0'$`,
+);
+
+/**
+ * Une commande est à nous seulement si elle correspond, au caractère près, au gabarit
+ * que nous écrivons nous-mêmes — jamais si elle le contient ou le mentionne en passant.
+ * Un test de sous-chaîne classerait comme nôtre une commande étrangère qui enrobe notre
+ * bridge (`sh -c 'autre-chose && ~/.koh-claude/bin/koh-claude-bridge'`) : elle serait
+ * alors supprimée par `installHooks`/`uninstallHooks`, et invisible pour
+ * `foreignFingerprint` puisqu'il partage ce même prédicat — les deux garde-fous
+ * tomberaient ensemble. La reconnaissance exacte du gabarit referme les deux à la fois.
+ *
+ * `uninstallHooks` ne reçoit pas de `bridgePath` : reconnaître le gabarit structurel
+ * (plutôt que comparer à une chaîne construite avec un `bridgePath` qu'on n'a pas) est
+ * ce qui permet à cette fonction de fonctionner sans cet argument.
+ */
 function isOurs(h: unknown): boolean {
-  return isRecord(h) && typeof h['command'] === 'string' && h['command'].includes(KOH_MARKER);
+  if (!isRecord(h) || typeof h['command'] !== 'string') return false;
+  const match = OUR_COMMAND_RE.exec(h['command']);
+  if (!match) return false;
+  const bridgePath = match[1];
+  return bridgePath !== undefined && (bridgePath === KOH_MARKER || bridgePath.endsWith(`/${KOH_MARKER}`));
 }
 
 /**
@@ -117,34 +142,46 @@ export function countKohEntries(settings: unknown): number {
  * — jamais par un indice de tableau : un indice se déplace légitimement quand on
  * insère notre propre entrée, un nom d'événement ou un motif de matcher non.
  *
+ * L'ascendance est encodée comme une **suite de segments**, sérialisée en un seul
+ * `JSON.stringify` avec la valeur en dernier élément — jamais par concaténation avec
+ * un séparateur. Une concaténation `"hooks." + event + "." + matcher` confond
+ * `event = "PreToolUse.Bash"` avec `event = "PreToolUse", matcher = "Bash.foo"` dès que
+ * l'un des deux contient le séparateur ; deux segments de tableau distincts se
+ * sérialisent toujours différemment, quel que soit leur contenu.
+ *
  * Parcours volontairement indépendant de `stripOurs`/`isMatcher` : si l'empreinte lisait
  * la structure de la même façon que la transformation qu'elle surveille, une forme que
  * cette lecture ne sait pas voir serait absente des deux côtés et le garde-fou
  * laisserait passer exactement le genre de perte qu'il doit attraper.
  *
- * Résidu assumé, documenté plutôt que caché : deux commandes étrangères qui échangent
- * seulement leur ordre à l'intérieur du même matcher (donc sous la même clé
- * d'ascendance) restent indiscernables, l'empreinte étant triée pour ignorer l'ordre
- * d'énumération des clés d'objet.
+ * Résidus assumés, documentés plutôt que cachés :
+ * - Deux commandes étrangères qui échangent seulement leur ordre à l'intérieur du même
+ *   matcher (donc sous la même clé d'ascendance) restent indiscernables, l'empreinte
+ *   étant triée pour ignorer l'ordre d'énumération des clés d'objet.
+ * - Deux blocs matcher qui partagent le même motif au sein du même événement partagent
+ *   aussi la même clé d'ascendance : les commandes restent toutes présentes et
+ *   qualifiées par la condition de déclenchement qu'elles partagent, mais on ne peut
+ *   pas dire duquel des deux blocs chacune vient précisément.
  */
 export function foreignFingerprint(settings: unknown): string[] {
   if (!isRecord(settings) || !isRecord(settings['hooks'])) return [];
   const out: string[] = [];
-  const record = (path: string, value: unknown): void => {
-    out.push(`${path}::${JSON.stringify(value)}`);
+
+  const record = (path: readonly string[], value: unknown): void => {
+    out.push(JSON.stringify([...path, value]));
   };
 
-  const walkCommandList = (path: string, list: unknown[]): void => {
+  const walkCommandList = (path: readonly string[], list: unknown[]): void => {
     for (const item of list) {
       if (isOurs(item)) continue;
       record(path, item);
     }
   };
 
-  const walkMatcherArray = (path: string, list: unknown[]): void => {
+  const walkMatcherArray = (path: readonly string[], list: unknown[]): void => {
     for (const item of list) {
       const itemPath =
-        isRecord(item) && typeof item['matcher'] === 'string' ? `${path}.${item['matcher']}` : path;
+        isRecord(item) && typeof item['matcher'] === 'string' ? [...path, item['matcher']] : path;
       if (isRecord(item) && Array.isArray(item['hooks'])) {
         walkCommandList(itemPath, item['hooks']);
       } else {
@@ -154,7 +191,7 @@ export function foreignFingerprint(settings: unknown): string[] {
   };
 
   for (const [event, value] of Object.entries(settings['hooks'])) {
-    const path = `hooks.${event}`;
+    const path = ['hooks', event];
     if (Array.isArray(value)) {
       walkMatcherArray(path, value);
     } else {

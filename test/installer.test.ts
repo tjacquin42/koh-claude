@@ -105,8 +105,8 @@ describe('formes non reconnues', () => {
 describe('foreignFingerprint', () => {
   it('qualifie chaque commande étrangère par son ascendance en noms', () => {
     expect(foreignFingerprint(existing)).toEqual([
-      'hooks.PermissionRequest.*::{"type":"command","command":"/vibe/bridge --source claude","timeout":86400}',
-      'hooks.PreToolUse.Bash::{"type":"command","command":"mon-hook-a-moi"}',
+      '["hooks","PermissionRequest","*",{"type":"command","command":"/vibe/bridge --source claude","timeout":86400}]',
+      '["hooks","PreToolUse","Bash",{"type":"command","command":"mon-hook-a-moi"}]',
     ]);
   });
 
@@ -154,5 +154,73 @@ describe('foreignFingerprint', () => {
       },
     };
     expect(foreignFingerprint(treeC)).not.toEqual(foreignFingerprint(treeD));
+  });
+
+  // Contre-exemple de la re-revue (tour 3, point 2) : la clé d'ascendance était bâtie
+  // par concaténation avec un séparateur ('.'), donc injectable. Un événement nommé
+  // "PreToolUse.Bash" avec un matcher "foo" produisait la même clé qu'un événement
+  // "PreToolUse" avec un matcher "Bash.foo", alors que ce sont deux emplacements
+  // réellement distincts. L'ascendance encodée comme suite de segments (tableau JSON)
+  // doit les distinguer.
+  it('distingue deux ascendances réellement différentes que la concaténation confondrait', () => {
+    const treeA = {
+      hooks: {
+        PreToolUse: [{ matcher: 'Bash.foo', hooks: [{ type: 'command', command: 'evil' }] }],
+      },
+    };
+    const treeB = {
+      hooks: {
+        'PreToolUse.Bash': [{ matcher: 'foo', hooks: [{ type: 'command', command: 'evil' }] }],
+      },
+    };
+    expect(foreignFingerprint(treeA)).not.toEqual(foreignFingerprint(treeB));
+  });
+
+  // Tour 3, point 3 : les deux tests ci-dessous meurent si on retire la branche de
+  // foreignFingerprint qui fait entrer la forme non classable correspondante dans
+  // l'empreinte — contrairement à un test qui compare deux objets déjà identiques
+  // (aveugle des deux côtés à une telle suppression). La forme qui marche est
+  // l'asymétrie : l'empreinte d'un arbre qui porte la forme malformée doit différer de
+  // l'empreinte du même arbre qui en est privé.
+  it('une valeur d événement non-tableau se distingue de son absence dans l empreinte', () => {
+    const withForm = { hooks: { PreCompact: 'valeur-inattendue' } };
+    const withoutForm = { hooks: {} };
+    expect(foreignFingerprint(withForm)).not.toEqual(foreignFingerprint(withoutForm));
+  });
+
+  it('une entrée de matcher dont hooks n est pas un tableau se distingue de son absence', () => {
+    const withForm = { hooks: { PostCompact: [{ matcher: '*', hooks: 'not-an-array' }] } };
+    const withoutForm = { hooks: { PostCompact: [] } };
+    expect(foreignFingerprint(withForm)).not.toEqual(foreignFingerprint(withoutForm));
+  });
+});
+
+// Tour 3, point 1 : isOurs comparait par sous-chaîne (`command.includes(KOH_MARKER)`),
+// ce qui classait comme nôtre toute commande étrangère mentionnant notre bridge en
+// passant — installHooks/uninstallHooks la supprimait, et foreignFingerprint, qui
+// partage ce même prédicat, ne la voyait pas non plus disparaître. isOurs reconnaît
+// désormais exactement le gabarit que nous écrivons, jamais une commande qui le contient.
+describe('isOurs (précision de la reconnaissance)', () => {
+  it('ne classe pas comme nôtre une commande étrangère qui enrobe notre bridge', () => {
+    const wrapped = {
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: '*',
+            hooks: [{ type: 'command', command: "sh -c 'autre-chose && ~/.koh-claude/bin/koh-claude-bridge'" }],
+          },
+        ],
+      },
+    };
+    const out = uninstallHooks(wrapped) as typeof wrapped;
+    expect(out.hooks.PreToolUse[0]?.hooks.map((h) => h.command)).toContain(
+      "sh -c 'autre-chose && ~/.koh-claude/bin/koh-claude-bridge'",
+    );
+    expect(foreignFingerprint(wrapped).length).toBeGreaterThan(0);
+  });
+
+  it('reconnaît exactement notre propre commande installée : rien d étranger après une installation à vide', () => {
+    const out = installHooks({}, BRIDGE);
+    expect(foreignFingerprint(out)).toEqual([]);
   });
 });
