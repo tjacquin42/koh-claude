@@ -5,7 +5,7 @@ import type { SpoolDirs } from '../paths';
 import { parseSpoolFile } from '../events/parse';
 import { reduce } from '../store/reduce';
 import { SESSION_PURGE_MS } from '../store/staleness';
-import { purgeStaleSessions, readSession, removeSession, writeSession } from './persist';
+import { ensureDirs, purgeStaleSessions, readSession, removeSession, writeSession } from './persist';
 import { type AbandonSignal, GUARD_TIMEOUT_MS, ReentrantGuard } from '../lib/reentrant-guard';
 
 export interface DrainResult {
@@ -98,6 +98,12 @@ export async function drain(dirs: SpoolDirs, now: number, signal?: AbandonSignal
   try {
     names = await readdir(dirs.events);
   } catch {
+    // Le spool a disparu (ex : `rm -rf ~/.koh-claude` pendant que l'extension
+    // tourne) : le recréer plutôt que de rester muet jusqu'au prochain
+    // rechargement de fenêtre — ensureDirs est idempotent, sûr à rappeler
+    // ici. Le bridge, qui sort en silence quand `events/` n'existe pas
+    // (garde `[[ -d "$DIR" ]]`), redépose alors normalement au prochain hook.
+    await ensureDirs(dirs).catch(() => undefined);
     names = [];
   }
 

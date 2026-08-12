@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -46,14 +46,6 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   };
 });
 
-async function waitFor(predicate: () => boolean, timeoutMs = 2000, stepMs = 20): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!predicate()) {
-    if (Date.now() > deadline) throw new Error('waitFor: délai dépassé');
-    await new Promise((resolve) => setTimeout(resolve, stepMs));
-  }
-}
-
 let home: string;
 let dirs: SpoolDirs;
 
@@ -72,7 +64,7 @@ async function dropEvent(name: string, body: unknown): Promise<void> {
 
 const hook = (event: string, at: number, extra: Record<string, unknown> = {}) => ({
   event, at, entrypoint: 'cli', termProgram: '',
-  payload: { session_id: 's1', cwd: '/Users/jack/DEV/pity-tidy', ...extra },
+  payload: { session_id: 's1', cwd: '/Users/dev/projet', ...extra },
 });
 
 const session = (id: string, lastEventAt: number) => ({
@@ -137,7 +129,7 @@ describe('drain', () => {
   it('appendLocalEvent produit un événement que drain sait lire', async () => {
     await dropEvent('1-1-Stop.json', hook('Stop', 1));
     await drain(dirs, NOW);
-    await appendLocalEvent(dirs, { event: 'Ack', sessionId: 's1', cwd: '/Users/jack/DEV/pity-tidy' });
+    await appendLocalEvent(dirs, { event: 'Ack', sessionId: 's1', cwd: '/Users/dev/projet' });
     await drain(dirs, NOW);
     expect((await readSessions(dirs)).get('s1')?.status).toBe('idle');
   });
@@ -146,9 +138,9 @@ describe('drain', () => {
     // process.pid est constant sur toute la durée de vie du process de l'extension :
     // deux appels concurrents portant le même event ne doivent pas se marcher dessus.
     const calls = [
-      appendLocalEvent(dirs, { event: 'Ack', sessionId: 's1', cwd: '/Users/jack/DEV/pity-tidy' }),
-      appendLocalEvent(dirs, { event: 'Ack', sessionId: 's2', cwd: '/Users/jack/DEV/pity-tidy' }),
-      appendLocalEvent(dirs, { event: 'Ack', sessionId: 's3', cwd: '/Users/jack/DEV/pity-tidy' }),
+      appendLocalEvent(dirs, { event: 'Ack', sessionId: 's1', cwd: '/Users/dev/projet' }),
+      appendLocalEvent(dirs, { event: 'Ack', sessionId: 's2', cwd: '/Users/dev/projet' }),
+      appendLocalEvent(dirs, { event: 'Ack', sessionId: 's3', cwd: '/Users/dev/projet' }),
     ];
     await Promise.all(calls);
 
@@ -366,6 +358,31 @@ describe('drain — purge des sessions mortes (C1)', () => {
   });
 });
 
+describe('drain — répertoire du spool disparu (M9)', () => {
+  it("recrée le spool (ensureDirs) quand il constate que events/ a disparu, plutôt que de rester muet jusqu'au rechargement de la fenêtre", async () => {
+    // Simule `rm -rf ~/.koh-claude` pendant que l'extension tourne.
+    rmSync(home, { recursive: true, force: true });
+    expect(existsSync(dirs.events)).toBe(false);
+
+    const res = await drain(dirs, NOW);
+
+    expect(res.applied).toBe(0);
+    expect(res.rejected).toBe(0);
+    expect(res.deferred).toBe(0);
+    expect(existsSync(dirs.events)).toBe(true);
+    expect(existsSync(dirs.sessions)).toBe(true);
+    expect(existsSync(dirs.requests)).toBe(true);
+
+    // Le spool recréé fonctionne normalement : un événement déposé ensuite
+    // (ex : par le bridge, qui ne voit plus la garde `[[ -d "$DIR" ]]` échouer)
+    // est bien consommé au prochain drain.
+    await dropEvent('1-1-SessionStart.json', hook('SessionStart', 1));
+    const res2 = await drain(dirs, NOW);
+    expect(res2.applied).toBe(1);
+    expect((await readSessions(dirs)).get('s1')?.startedAt).toBe(1);
+  });
+});
+
 describe('drain — convergence entre fenêtres (I1)', () => {
   it("une fenêtre qui écrit depuis une base périmée ne ressuscite pas une session supprimée entre-temps par une autre", async () => {
     // Établit s1 en « terminé non lu », comme reduce le prévoit.
@@ -527,39 +544,41 @@ describe('SpoolWatcher', () => {
     watcher.stop();
   });
 
-  it('stop() ferme le FSWatcher et efface le minuteur de secours : plus aucun onChange après', async () => {
+  it('stop() ferme le FSWatcher et efface le minuteur de secours ; le déclenchement est piloté par tick(), jamais par fs.watch ou un délai', async () => {
     const onChange = vi.fn();
     const onError = vi.fn();
     const watcher = new SpoolWatcher(dirs, onChange, onError, () => NOW);
-    watcher.start();
+    const internal = watcher as unknown as {
+      watcher?: { close: () => void };
+      timer?: NodeJS.Timeout;
+      tick: () => Promise<void>;
+    };
 
     try {
-      const internal = watcher as unknown as {
-        watcher?: { close: () => void };
-        timer?: NodeJS.Timeout;
-      };
+      // La consommation est prouvée par un appel direct à tick(), sur un
+      // watcher pas encore démarré : aucun déclenchement implicite de
+      // start() (lui-même un void this.tick() en arrière-plan) ne peut entrer
+      // en course avec cet appel.
+      await dropEvent('1-1-SessionStart.json', hook('SessionStart', 1));
+      await internal.tick();
+      expect(onChange).toHaveBeenCalledTimes(1);
+      expect((await readSessions(dirs)).get('s1')?.startedAt).toBe(1);
+
+      // fs.watch et le minuteur ne sont vérifiés que structurellement — leur
+      // existence, puis leur fermeture effective par stop() — jamais par leur
+      // déclenchement réel : attendre qu'un vrai fs.watch remarque un fichier
+      // est justement ce qui rendait ce test capricieux (déjà observé en
+      // échec une fois en développement).
+      watcher.start();
       expect(internal.watcher).toBeDefined();
       expect(internal.timer).toBeDefined();
       const closeSpy = vi.spyOn(internal.watcher as { close: () => void }, 'close');
-
-      // Avant stop() : un événement déposé est bien détecté et consommé.
-      await dropEvent('1-1-SessionStart.json', hook('SessionStart', 1));
-      await waitFor(() => onChange.mock.calls.length > 0);
-      expect((await readSessions(dirs)).get('s1')?.startedAt).toBe(1);
 
       watcher.stop();
 
       expect(closeSpy).toHaveBeenCalledOnce();
       expect(internal.watcher).toBeUndefined();
       expect(internal.timer).toBeUndefined();
-
-      const callsAtStop = onChange.mock.calls.length;
-      await dropEvent('2-1-Stop.json', hook('Stop', 2));
-      await new Promise((resolve) => setTimeout(resolve, 250));
-
-      expect(onChange.mock.calls.length).toBe(callsAtStop);
-      // Le fichier déposé après stop() n'a pas été drainé.
-      expect(readdirSync(dirs.events).filter((f) => f.endsWith('.json'))).toHaveLength(1);
     } finally {
       watcher.stop();
     }
