@@ -1,0 +1,112 @@
+name: CD
+
+# La livraison de ce dépôt : ce qui arrive sur `main` devient une version.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  version-check:
+    # La livraison pose « patch » par défaut quand la ligne manque. Ce n'est pas une
+    # raison de la laisser manquer : le niveau se décide ici, à l'ouverture, quand on
+    # sait ce qu'on livre. Ce job avertit, il ne bloque pas.
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: La PR annonce-t-elle son niveau de version ?
+        # Le corps passe par l'environnement, jamais interpolé dans le script :
+        # `${{ }}` en plein `run` exécuterait ce qu'un corps de PR contient.
+        env:
+          CORPS: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          NIVEAU=$(printf '%s\n' "${CORPS:-}" | tr -d '\r' \
+                   | grep -iE '^[[:space:]]*Version:[[:space:]]*(major|minor|patch)' | head -1 \
+                   | sed -E 's/^[[:space:]]*[Vv]ersion:[[:space:]]*//' | awk '{print tolower($1)}' || true)
+          if [ -n "$NIVEAU" ]; then
+            echo "Niveau annoncé : **$NIVEAU**" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::Cette PR n'annonce pas son niveau de version. Ajoute « Version: major|minor|patch » au corps, sinon la livraison posera un patch."
+            {
+              echo "### Version non annoncée"
+              echo
+              echo "Ajoute une ligne \`Version: major|minor|patch\` au corps de la PR."
+              echo "Sans elle, la livraison sur \`main\` posera un **patch** par défaut."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  version:
+    # Poser la version était la dernière marche du processus, et la seule restée
+    # manuelle : elle a sauté trois fois sur trois le 13/08.
+    #
+    # Ce dépôt n'a pas de suite de tests en CI : la livraison n'a donc rien à
+    # attendre avant de poser la version. Le jour où une CI arrive ici, ce job
+    # prend un `needs` sur elle — un tag posé sur du rouge annoncerait une
+    # version qui n'est pas livrable.
+    # Le commit de CHANGELOG que ce job pousse lui-même ne doit pas le relancer.
+    # Sur le préfixe, pas sur le message entier : la première version de cette garde
+    # cherchait un marqueur n'importe où, et a sauté le commit qui l'introduisait.
+    #
+    # Ce n'est qu'une économie de run : la vraie sécurité est plus bas, un commit
+    # poussé directement sur main n'ayant aucune PR associée, il ne bumpe rien.
+    if: >-
+      github.event_name == 'push' && github.ref == 'refs/heads/main'
+      && !startsWith(github.event.head_commit.message, 'chore(version):')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # tag, Release, et push de l'entrée de CHANGELOG
+      pull-requests: write # label vX.Y.Z sur la PR livrée
+      issues: write # les milestones passent par l'API issues
+    # Deux merges rapprochés poseraient deux tags à partir du même « dernier tag ».
+    concurrency:
+      group: version-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Le script déduit le prochain numéro du dernier tag existant. Sans
+          # l'historique complet ni les tags, il repartirait de 0.0.0.
+          fetch-depth: 0
+
+      - name: Retrouver la PR de ce merge
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          NUM=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" \
+                  --jq '[.[] | select(.merged_at != null)] | .[0].number // empty' 2>/dev/null || true)
+          if [ -z "$NUM" ]; then
+            # Un commit poussé directement sur main ne bumpe pas : il est livré avec
+            # la PR suivante et cité sous « Commits directs » dans son entrée.
+            echo "Aucune PR mergée associée à ${{ github.sha }} — rien à versionner."
+          else
+            echo "PR #$NUM"
+          fi
+          echo "numero=$NUM" >> "$GITHUB_OUTPUT"
+
+      - name: Poser la version
+        if: steps.pr.outputs.numero != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Niveau laissé vide : le script le lit dans le corps de la PR, retombe sur
+          # « patch » si la ligne manque, et n'échoue que si elle est illisible.
+          scripts/bump-version.sh "" "${{ steps.pr.outputs.numero }}"
+
+      - name: Publier l'entrée de CHANGELOG
+        if: steps.pr.outputs.numero != ''
+        run: |
+          set -euo pipefail
+          if git diff --quiet CHANGELOG.md; then
+            echo "Le tag et la Release sont posés, mais CHANGELOG.md n'a pas bougé." >&2
+            exit 1
+          fi
+          git add CHANGELOG.md
+          git commit -m "chore(version): entrée de CHANGELOG pour la PR #${{ steps.pr.outputs.numero }}"
+          git push
