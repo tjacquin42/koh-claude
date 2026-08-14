@@ -259,4 +259,16 @@ describe('groupIdOfNode — résout un identifiant de dossier sans jamais caster
   it("renvoie undefined quand group.id n'est pas une chaîne", () => {
     expect(groupIdOfNode({ kind: 'group', group: { id: 42, name: 'x', order: 0 } })).toBeUndefined();
   });
+
+  // Preuve par mutation (revue Task 9, tour 2) : sans ce test, retirer
+  // `candidate.kind !== 'group' ||` laisse les autres tests de ce bloc verts
+  // quand même — aucun d'eux ne combine un `kind` différent de `'group'` avec
+  // un `group.id` par ailleurs valide, donc rien ne dépendait réellement de
+  // cette moitié de la garde. Un objet malformé (aucune forme réelle de
+  // TreeNode ne porte à la fois `kind: 'session'` et un champ `group`) suffit
+  // à le prouver : sans la vérification du `kind`, la seule condition
+  // restante (`group !== undefined`) laisserait passer 'g1'.
+  it('ignore un group.id valide porté par un nœud dont le kind n est pas "group"', () => {
+    expect(groupIdOfNode({ kind: 'session', group: { id: 'g1', name: 'x', order: 0 } })).toBeUndefined();
+  });
 });
