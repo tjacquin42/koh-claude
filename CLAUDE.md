@@ -49,8 +49,12 @@ annoncé. Elle avertit, elle ne bloque pas.
 ### Ce que la livraison fait toute seule
 
 Une fois la PR mergée, le job `version` de `.github/workflows/cd.yml` **lit le numéro dans
-`package.json`** et pose le tag `vX.Y.Z`, la Release GitHub, l'entrée de `CHANGELOG.md`, le
-label et la milestone.
+`package.json`** et pose le tag `vX.Y.Z`, la Release GitHub, le label et la milestone.
+
+L'entrée de `CHANGELOG.md` fait exception : le job la rédige, mais ne peut pas la pousser,
+pour la raison ci-dessus. Elle attend dans le résumé du job, sous « Entrée de CHANGELOG à
+reporter », et c'est à une PR de suivi de la porter. Sans ce report, `CHANGELOG.md`
+contredit les tags — c'est ce qui est arrivé à `v0.1.0`.
 
 Si `package.json` n'a pas été bumpé, la livraison ne s'arrête pas : elle applique le niveau
 annoncé au numéro courant et le signale. Une livraison sans version est un trou définitif dans
