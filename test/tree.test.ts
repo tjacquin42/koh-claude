@@ -327,7 +327,7 @@ describe('SessionsTree — espace et couleur des dossiers', () => {
     const tree = withGroups([{ id: 'g-1', name: 'Un', order: 0, color: 'green' }]);
     const [node] = await tree.getChildren();
     const icon = tree.getTreeItem(node).iconPath as { id: string; color?: { id: string } };
-    expect(icon.id).toBe('folder-opened');
+    expect(icon.id).toBe('symbol-folder');
     expect(icon.color?.id).toBe('charts.green');
   });
 
@@ -336,7 +336,7 @@ describe('SessionsTree — espace et couleur des dossiers', () => {
       const tree = withGroups([{ id: 'g-1', name: 'Un', order: 0, color }]);
       const [node] = await tree.getChildren();
       const icon = tree.getTreeItem(node).iconPath as { id: string; color?: { id: string } };
-      expect(icon.id).toBe('folder-opened');
+      expect(icon.id).toBe('symbol-folder');
       expect(icon.color).toBeUndefined();
     }
   });

@@ -17,14 +17,14 @@
   "contributes": {
     "viewsContainers": {
       "activitybar": [
-        { "id": "koh-vibe", "title": "Koh-Vibe", "icon": "resources/island.svg" }
+        { "id": "koh-vibe", "title": "Koh-Vibe", "icon": "resources/koh-rong.svg" }
       ]
     },
     "views": {
       "koh-vibe": [
-        { "id": "kohVibe.sessions", "name": "Sessions", "icon": "resources/island.svg", "initialSize": 20 },
-        { "id": "kohVibe.usage", "name": "Consommation", "type": "webview", "icon": "resources/island.svg", "initialSize": 3 },
-        { "id": "kohVibe.settings", "name": "Réglages", "icon": "resources/island.svg", "initialSize": 4 }
+        { "id": "kohVibe.sessions", "name": "Sessions", "icon": "resources/koh-rong.svg", "initialSize": 20 },
+        { "id": "kohVibe.usage", "name": "Consommation", "type": "webview", "icon": "resources/koh-rong.svg", "initialSize": 3 },
+        { "id": "kohVibe.settings", "name": "Réglages", "icon": "resources/koh-rong.svg", "initialSize": 4 }
       ]
     },
     "commands": [

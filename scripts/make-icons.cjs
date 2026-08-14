@@ -131,9 +131,13 @@ function smoothClosedPath(points, tension) {
 const resources = join(__dirname, '..', 'resources');
 
 // --- Barre d'activité : 24 px, monochrome, recolorée par VSCode ---
+// Le fichier s'appelle koh-rong.svg et non plus island.svg : l'icône est servie
+// au rendu par une URL de fichier, que l'éditeur met en cache. Le paquet gardant
+// toujours la même version et le même chemin, réinstaller ne changeait pas
+// l'URL — et l'ancien dessin restait affiché après un rechargement de fenêtre.
 const small = smoothClosedPath(fit(dropSpikes(simplify(OUTLINE, 55), 42), 24, 1.2), 0.5);
 writeFileSync(
-  join(resources, 'island.svg'),
+  join(resources, 'koh-rong.svg'),
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
   <path d="${small}" fill="#000"/>
 </svg>

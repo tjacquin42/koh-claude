@@ -52,16 +52,20 @@ const ICONS: Record<Status, { id: string; color: string }> = {
 const ORDER: Record<Status, number> = { waiting: 0, running: 1, done_unseen: 2, idle: 3, stale: 4 };
 
 /**
- * Le glyphe des dossiers : `folder-opened`, jamais `folder`.
+ * Le glyphe des dossiers : `symbol-folder`, qui est un dossier FERMÉ.
  *
  * VSCode traite `folder` et `file` à part : au lieu de dessiner le codicon, il
- * délègue au thème d'icônes de fichiers — et quand ce thème est « Aucun »,
- * il ne dessine RIEN. Les forks n'ont pas tous ce cas particulier : la même
- * machine affichait donc un dossier dans un éditeur et rien dans l'autre.
- * Un glyphe hors de cette liste est rendu de la même façon partout, et garde
- * la couleur du dossier au passage.
+ * délègue au thème d'icônes de fichiers — et quand ce thème est « Aucun », il ne
+ * dessine RIEN. Les forks n'ont pas tous ce cas particulier : la même machine
+ * affichait donc un dossier dans un éditeur et rien dans l'autre.
+ *
+ * `symbol-folder` pointe sur EXACTEMENT le même dessin que `folder` (même point
+ * de code, U+EA83) sous un autre nom — le cas particulier compare l'identifiant,
+ * pas le glyphe. On récupère donc le dossier fermé, rendu partout de la même
+ * façon, et qui garde la couleur du dossier au passage. `folder-opened`, qui
+ * échappait au même piège, avait le défaut de montrer un dossier ouvert.
  */
-const GROUP_GLYPH = 'folder-opened';
+const GROUP_GLYPH = 'symbol-folder';
 
 /**
  * L'identité d'une ligne, stable d'un rendu à l'autre.
