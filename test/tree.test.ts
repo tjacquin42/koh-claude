@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { SessionsTree } from '../src/ui/tree';
+import { SessionsTree, groupIdOfNode } from '../src/ui/tree';
 import type { TreeNode } from '../src/ui/tree';
 import type { Session } from '../src/events/types';
 import type { GroupsState } from '../src/groups/model';
@@ -210,5 +210,53 @@ describe('SessionsTree — deux niveaux : dossiers puis sessions', () => {
 
     expect(children).toEqual([{ kind: 'empty', message: 'Aucune session Claude Code active' }]);
     expect(checkHooksInstalled).toHaveBeenCalledTimes(1);
+  });
+});
+
+// groupIdOfNode : ce que VSCode passe à kohClaude.renameGroup/deleteGroup
+// depuis le menu contextuel (view/item/context) est l'élément de l'arbre
+// tel quel, jamais un TreeItem — donc n'importe quoi du point de vue du
+// typage TypeScript. Ces tests couvrent la validation sans cast, comme
+// handleDrop dans test/tree-dnd.test.ts.
+describe('groupIdOfNode — résout un identifiant de dossier sans jamais caster', () => {
+  it("retrouve l'identifiant d'un nœud de dossier nommé", () => {
+    const node: TreeNode = { kind: 'group', group: { id: 'g1', name: 'Perso', order: 0 }, sessions: [] };
+
+    expect(groupIdOfNode(node)).toBe('g1');
+  });
+
+  it('renvoie undefined pour « Sans dossier » (group: undefined)', () => {
+    const node: TreeNode = { kind: 'group', group: undefined, sessions: [] };
+
+    expect(groupIdOfNode(node)).toBeUndefined();
+  });
+
+  it('renvoie undefined pour un nœud de session', () => {
+    const node: TreeNode = {
+      kind: 'session',
+      session: {
+        id: 's1',
+        cwd: '/Users/dev/projet',
+        project: 'projet',
+        origin: 'vscode',
+        status: 'idle',
+        toolCount: 0,
+        lastEventAt: 0,
+      },
+    };
+
+    expect(groupIdOfNode(node)).toBeUndefined();
+  });
+
+  it('renvoie undefined pour un nœud vide', () => {
+    expect(groupIdOfNode({ kind: 'empty', message: 'Aucune session Claude Code active' })).toBeUndefined();
+  });
+
+  it.each([undefined, null, 'g1', 42, []])('renvoie undefined pour une valeur non objet : %p', (value) => {
+    expect(groupIdOfNode(value)).toBeUndefined();
+  });
+
+  it("renvoie undefined quand group.id n'est pas une chaîne", () => {
+    expect(groupIdOfNode({ kind: 'group', group: { id: 42, name: 'x', order: 0 } })).toBeUndefined();
   });
 });

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -6,9 +7,11 @@ import { groupsFile, kohClaudeHome, spoolDirs } from './paths';
 import { ensureDirs, readSessions } from './spool/persist';
 import { SpoolWatcher } from './spool/watcher';
 import { pruneAssignmentsAfterPurge } from './groups/purge';
+import { applyDrop, createGroupCommand, deleteGroupCommand, renameGroupCommand, runGroupAction } from './groups/commands';
+import { readGroups } from './groups/store';
 import type { TranscriptStats } from './transcript/reader';
 import { withTokens } from './transcript/tokens';
-import { SessionsTree } from './ui/tree';
+import { SessionsTree, groupIdOfNode } from './ui/tree';
 import { StatusSummary } from './ui/statusbar';
 import { FocusBroker } from './focus/broker';
 import { acknowledgeClickedSession, acknowledgeVisibleSessions } from './focus/acknowledge';
@@ -36,19 +39,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   }
 
-  const tree = new SessionsTree(
-    checkHooksInstalled,
-    // Câblage réel laissé à la tâche suivante (appellera updateGroups sur
-    // groupsPath) : onDrop est un paramètre obligatoire du constructeur
-    // précisément pour qu'un câblage oublié échoue ici, à la compilation,
-    // plutôt que de laisser un glisser-déposer silencieusement inerte.
-    () => Promise.resolve(),
-  );
+  // Le vrai câblage du glisser-déposer : appelle updateGroups au travers
+  // d'applyDrop (groups/commands.ts), jamais une écriture directe — voir sa
+  // documentation. Un rendu explicite suit l'écriture pour que le dossier se
+  // peuple tout de suite à l'écran, sans attendre le minuteur (REFRESH_MS).
+  async function onSessionsDropped(sessionIds: readonly string[], groupId: string | undefined): Promise<void> {
+    await applyDrop(groupsPath, sessionIds, groupId);
+    await render();
+  }
+
+  const tree = new SessionsTree(checkHooksInstalled, onSessionsDropped);
   const status = new StatusSummary();
   const broker = new FocusBroker(dirs);
   const transcripts = new Map<string, TranscriptStats>();
 
-  const view = vscode.window.createTreeView('kohClaude.sessions', { treeDataProvider: tree });
+  const view = vscode.window.createTreeView('kohClaude.sessions', {
+    treeDataProvider: tree,
+    dragAndDropController: tree,
+  });
 
   // Un seul avertissement par cause, jamais un par tick (le minuteur tourne
   // toutes les REFRESH_MS) : même précédent que `warnedMissingCommand` dans
@@ -72,7 +80,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             "Koh-Claude : lecture d'un transcript impossible — cette session s'affiche sans ses compteurs.",
           );
         });
+        // Relu à chaque rendu, jamais mis en cache : fichier partagé (§3),
+        // une autre fenêtre ou un autre éditeur peut l'avoir changé entre deux
+        // tours. `readGroups` n'échoue jamais (un fichier absent ou illisible
+        // vaut « classement vide », voir groups/store.ts) : aucune garde de
+        // type `*FailureWarned` n'est nécessaire ici.
+        const groups = await readGroups(groupsPath);
         tree.setSessions(map);
+        tree.setGroups(groups);
         status.update(map);
       },
       () => {
@@ -158,6 +173,37 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const terminal = vscode.window.createTerminal('Koh-Claude');
       terminal.sendText(`node "${installScript}" --uninstall`);
       terminal.show();
+    }),
+    // Les trois commandes de dossier partagent le même filet : runGroupAction
+    // (groups/commands.ts) transforme tout ce que la décision lève — en
+    // particulier le nom vide, que createGroup/renameGroup rejettent
+    // volontairement — en message affiché, jamais en trace d'appel non gérée.
+    vscode.commands.registerCommand('kohClaude.newGroup', async () => {
+      const label = await vscode.window.showInputBox({ prompt: 'Nom du dossier', placeHolder: 'Perso' });
+      await runGroupAction(
+        () => createGroupCommand(groupsPath, label, () => randomUUID()),
+        (message) => void vscode.window.showErrorMessage(message),
+      );
+      await render();
+    }),
+    vscode.commands.registerCommand('kohClaude.renameGroup', async (node: unknown) => {
+      const id = groupIdOfNode(node);
+      if (id === undefined) return;
+      const label = await vscode.window.showInputBox({ prompt: 'Nouveau nom du dossier' });
+      await runGroupAction(
+        () => renameGroupCommand(groupsPath, id, label),
+        (message) => void vscode.window.showErrorMessage(message),
+      );
+      await render();
+    }),
+    vscode.commands.registerCommand('kohClaude.deleteGroup', async (node: unknown) => {
+      const id = groupIdOfNode(node);
+      if (id === undefined) return;
+      await runGroupAction(
+        () => deleteGroupCommand(groupsPath, id),
+        (message) => void vscode.window.showErrorMessage(message),
+      );
+      await render();
     }),
   );
 

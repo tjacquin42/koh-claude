@@ -27,6 +27,23 @@ function isSessionNode(node: TreeNode): node is Extract<TreeNode, { kind: 'sessi
   return node.kind === 'session';
 }
 
+/**
+ * Retrouve l'identifiant du dossier ciblé par un menu contextuel
+ * (kohClaude.renameGroup, kohClaude.deleteGroup) : pour une commande de
+ * `view/item/context`, VSCode passe l'élément de l'arbre tel quel — jamais un
+ * `TreeItem` — donc potentiellement n'importe quoi du point de vue du
+ * typage. Validé sans cast, comme `handleDrop` : seul un nœud de dossier
+ * NOMMÉ porte un identifiant ; « Sans dossier » (`group: undefined`) est déjà
+ * exclu par le `when` du menu (`viewItem == group`), mais défendu ici quand
+ * même plutôt que supposé.
+ */
+export function groupIdOfNode(node: unknown): string | undefined {
+  if (typeof node !== 'object' || node === null) return undefined;
+  const candidate = node as { kind?: unknown; group?: { id?: unknown } };
+  if (candidate.kind !== 'group' || candidate.group === undefined) return undefined;
+  return typeof candidate.group.id === 'string' ? candidate.group.id : undefined;
+}
+
 export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.TreeDragAndDropController<TreeNode> {
   // Type MIME qui nous est propre : c'est lui qui distingue un dépôt venu de
   // cet arbre (dont on connaît le format du contenu) d'un dépôt venu
