@@ -45,16 +45,31 @@ case "$LEVEL" in
   *) echo "Niveau « $LEVEL » non reconnu dans la PR #$PR — attendu major, minor ou patch." >&2; exit 1 ;;
 esac
 
-LAST=$(git tag -l 'v[0-9]*' | sed 's/^v//' | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)
-LAST="${LAST:-0.0.0}"
-IFS=. read -r MA MI PA <<< "$LAST"
-case "$LEVEL" in
-  major) MA=$((MA+1)); MI=0; PA=0 ;;
-  minor) MI=$((MI+1)); PA=0 ;;
-  patch) PA=$((PA+1)) ;;
-esac
-V="$MA.$MI.$PA"; TAG="v$V"
-git rev-parse -q --verify "refs/tags/$TAG" >/dev/null && { echo "$TAG existe déjà." >&2; exit 1; }
+# Le numéro ne se calcule plus ici : il est DÉJÀ dans package.json, posé par
+# scripts/set-version.sh dans la PR de promotion (voir CLAUDE.md). Le déduire des
+# tags était le défaut d'origine — le tag vit sur le commit de merge, que `dev`
+# ne contient pas, si bien que tout paquet construit depuis `dev` annonçait la
+# version précédente. Le manifeste, lui, suit la branche.
+V=$(node -p "require(process.cwd() + '/package.json').version")
+[[ "$V" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+  || { echo "Version « $V » illisible dans package.json — attendu X.Y.Z." >&2; exit 1; }
+TAG="v$V"
+
+# Le bump peut avoir été oublié : le manifeste porte alors la version déjà livrée,
+# dont le tag existe. Ce n'est pas une raison d'abandonner la livraison — une
+# version manquante est un trou définitif, un numéro rattrapé se corrige. On
+# applique donc le niveau annoncé au numéro courant, et on le dit fort.
+if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+  IFS=. read -r MA MI PA <<< "$V"
+  case "$LEVEL" in
+    major) MA=$((MA+1)); MI=0; PA=0 ;;
+    minor) MI=$((MI+1)); PA=0 ;;
+    patch) PA=$((PA+1)) ;;
+  esac
+  V="$MA.$MI.$PA"; TAG="v$V"
+  echo "::warning::package.json n'a pas été bumpé avant le merge — « $LEVEL » appliqué d'office, $TAG posée. Reporte le numéro dans package.json par une PR, sinon le prochain bump repartira du mauvais chiffre."
+  git rev-parse -q --verify "refs/tags/$TAG" >/dev/null && { echo "$TAG existe déjà." >&2; exit 1; }
+fi
 
 SHA=$(gh pr view "$PR" --repo "$REPO" --json mergeCommit -q .mergeCommit.oid)
 TITLE=$(gh pr view "$PR" --repo "$REPO" --json title -q .title)

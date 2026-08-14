@@ -3,11 +3,9 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 /**
- * La version n'est pas lue dans package.json : la convention du projet
- * (CLAUDE.md) dit qu'il reste à sa valeur d'origine et ne fait pas foi. Elle
- * vient du tag posé par la livraison, capté au build par
- * scripts/stamp-build.cjs — donc d'un fichier, comme tout ce qui vient de
- * l'extérieur, et validé sans cast.
+ * La version vient de package.json, qui fait foi (CLAUDE.md), captée au build
+ * par scripts/stamp-build.cjs — donc lue dans un fichier, comme tout ce qui
+ * vient de l'extérieur, et validée sans cast.
  */
 export function releaseLabel(stamp: unknown): string | undefined {
   if (typeof stamp !== 'object' || stamp === null) return undefined;
@@ -33,10 +31,10 @@ export function buildCommit(stamp: unknown): string | undefined {
 /**
  * Ce que la vue affiche à côté de son titre : « v0.2.0+7 · 1736ec0 ».
  *
- * Tant qu'aucune version n'a été livrée, le dépôt n'a pas de tag et il n'y a
- * rien à emprunter : on l'écrit, plutôt que d'afficher un numéro qui ne
- * correspond à aucune livraison. Le commit, lui, suffit déjà à répondre à la
- * seule question posée — est-ce bien le nouveau paquet qui tourne ?
+ * « Sans version » ne devrait plus se voir depuis que le manifeste fait foi : il
+ * reste pour le paquet fabriqué sans son stamp, ou dont le manifeste est
+ * illisible. Le commit, lui, suffit déjà à répondre à la seule question posée —
+ * est-ce bien le nouveau paquet qui tourne ?
  */
 export function versionLabel(stamp: unknown): string {
   const release = releaseLabel(stamp) ?? vscode.l10n.t('no version');
