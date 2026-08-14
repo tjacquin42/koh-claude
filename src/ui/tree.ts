@@ -75,9 +75,9 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode> {
           unfiled.push(s);
         }
       }
-      // Les dossiers apparaissent tous, même vides (I : cible de dépôt à la
-      // tâche suivante) ; « Sans dossier » seulement s'il a un contenu, sinon
-      // ce reliquat n'a rien à montrer, et toujours en dernier.
+      // Les dossiers apparaissent tous, même vides — c'est une cible de dépôt
+      // pour la tâche suivante ; « Sans dossier » seulement s'il a un contenu,
+      // sinon ce reliquat n'a rien à montrer, et toujours en dernier.
       const nodes: TreeNode[] = this.groups.groups.map((group) => ({
         kind: 'group',
         group,

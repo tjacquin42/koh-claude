@@ -161,6 +161,42 @@ describe('SessionsTree — deux niveaux : dossiers puis sessions', () => {
     expect(await labelsOf(tree, emptyGroupNode)).toEqual([]);
   });
 
+  it('trie les sessions d un dossier par statut puis par récence, comme la liste globale', async () => {
+    const tree = new SessionsTree(() => Promise.resolve(true));
+    tree.setSessions(
+      new Map([
+        ['s1', session('s1', { project: 'idle-old', status: 'idle', lastEventAt: 100 })],
+        ['s2', session('s2', { project: 'waiting', status: 'waiting', lastEventAt: 50 })],
+        ['s3', session('s3', { project: 'termine', status: 'done_unseen', lastEventAt: 50 })],
+        ['s4', session('s4', { project: 'idle-new', status: 'idle', lastEventAt: 200 })],
+      ]),
+    );
+    tree.setGroups(
+      groups({
+        groups: [{ id: 'g1', name: 'Dossier', order: 0 }],
+        assignments: { s1: 'g1', s2: 'g1', s3: 'g1', s4: 'g1' },
+      }),
+    );
+
+    const [groupNode] = await tree.getChildren();
+    expect(await labelsOf(tree, groupNode)).toEqual(['waiting', 'termine', 'idle-new', 'idle-old']);
+  });
+
+  it('donne un contextValue distinct à un vrai dossier et à « Sans dossier »', async () => {
+    const tree = new SessionsTree(() => Promise.resolve(true));
+    tree.setSessions(new Map([['s1', session('s1')], ['s2', session('s2')]]));
+    tree.setGroups(
+      groups({
+        groups: [{ id: 'g1', name: 'Dossier', order: 0 }],
+        assignments: { s1: 'g1' }, // s2 reste non rangée
+      }),
+    );
+
+    const [groupNode, unfiledNode] = await tree.getChildren();
+    expect(tree.getTreeItem(groupNode).contextValue).toBe('group');
+    expect(tree.getTreeItem(unfiledNode).contextValue).toBe('unfiled');
+  });
+
   it('l état vide global est inchangé quand il n y a aucune session', async () => {
     const checkHooksInstalled = vi.fn().mockResolvedValue(true);
     const tree = new SessionsTree(checkHooksInstalled);
