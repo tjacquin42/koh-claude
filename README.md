@@ -1,25 +1,29 @@
 # Koh-Vibe
 
-Toutes vos sessions Claude Code dans une seule vue : celles de tous les projets, de toutes
-les fenêtres et de tous les éditeurs de la machine — avec leur statut, ce qu'elles sont en
-train de faire, et votre consommation.
+*[Version française](README.fr.md)*
 
-*Koh* : « île » en thaï. Inspiré de [open-vibe-island](https://github.com/Octane0411/open-vibe-island),
-qui fait la même chose dans l'encoche du Mac. Aucun code n'en est repris.
+Every Claude Code session you have running, in one view: across projects, across windows,
+across editors — with its status, what it is doing right now, and your usage.
 
-## Ce que ça affiche
+*Koh* means "island" in Thai. Inspired by
+[open-vibe-island](https://github.com/Octane0411/open-vibe-island), which does the same thing
+in the Mac notch. No code is taken from it.
 
-- **Les sessions vivantes**, triées par ce qui réclame votre attention : celles qui vous
-  attendent d'abord, puis celles qui travaillent, puis celles qui viennent de finir.
-- **Une pastille de statut** par session — même glyphe, cinq couleurs — et, à côté, le projet,
-  la branche et l'outil en cours d'exécution.
-- **Votre consommation** sur cinq heures et sept jours, avec l'échéance de remise à zéro.
-- **Un clic** sur une session ouvre ou reprend sa fenêtre, où qu'elle soit.
+**macOS only.** Chimes go through `afplay`, the usage token is read from the system keychain,
+and the hook bridges are zsh scripts.
 
-## Installation
+## What it shows
 
-L'extension n'est pas publiée sur la place de marché : elle s'installe depuis un paquet
-construit en local.
+- **Live sessions**, sorted by what wants your attention: the ones waiting for you first, then
+  the ones working, then the ones that just finished.
+- **A status dot** per session — one glyph, five colours — next to the project, the branch and
+  the tool currently running.
+- **Your usage** over five hours and seven days, with the time until it resets.
+- **One click** opens or resumes a session's window, wherever it lives.
+
+## Install
+
+The extension is not published on the marketplace; it installs from a locally built package.
 
 ```bash
 pnpm install
@@ -27,109 +31,105 @@ pnpm package
 code --install-extension koh-vibe-0.1.0.vsix --force
 ```
 
-`pnpm package` compile avant d'empaqueter — le `.vsix` produit contient donc toujours le code
-que vous venez d'écrire.
+`pnpm package` compiles before packaging, so the `.vsix` always holds the code you just wrote.
 
-Les forks de VSCode exposent la même commande sous un autre nom (leur binaire CLI, souvent
-disponible depuis leur palette via *Install 'code' command in PATH*). Le même `.vsix` s'y
-installe sans changement.
+VSCode forks expose the same command under their own binary name (usually installable from
+their palette via *Install 'code' command in PATH*). The same `.vsix` works there unchanged.
 
-**Quittez complètement l'éditeur après l'installation** — pas un simple rechargement de
-fenêtre. Les icônes et les vues sont lues au démarrage.
+**Quit the editor fully after installing** — not just a window reload. Views and icons are
+read at startup.
 
-### Poser les hooks
+### Install the hooks
 
-Rien ne s'affiche tant que Claude Code ne dépose pas ses événements. Ouvrez la vue Koh-Vibe
-et cliquez sur *Hooks non installés*, ou lancez **Koh-Vibe: Installer les hooks** depuis la
-palette.
+Nothing appears until Claude Code starts dropping its events. Open the Koh-Vibe view and click
+*Hooks not installed*, or run **Koh-Vibe: Install hooks** from the palette.
 
-Le script ajoute huit hooks à `~/.claude/settings.json`, **sauvegarde le fichier avant d'y
-toucher**, et refuse d'écrire si son empreinte a changé entre-temps. Les hooks et la
-statusline que vous aviez déjà sont préservés : Koh-Vibe s'enchaîne au bout, il ne remplace
-rien. **Koh-Vibe: Désinstaller les hooks** défait exactement cela.
+The script adds eight hooks to `~/.claude/settings.json`, **backs the file up before touching
+it**, and refuses to write if its fingerprint changed in the meantime. Hooks and a status line
+you already had are preserved: Koh-Vibe chains onto the end, it replaces nothing.
+**Koh-Vibe: Uninstall hooks** undoes exactly that.
 
-## S'en servir
+## Using it
 
-**Ranger.** Créez des dossiers, glissez-y des sessions, donnez-leur une couleur. L'ordre à
-l'intérieur d'un dossier se fixe à la main et ne bouge plus : une session ouverte plus tard
-se pose à la fin sans bousculer ce qui a été placé.
+**Filing.** Create folders, drag sessions into them, give them a colour. The order inside a
+folder is set by hand and stays put: a session opened later lands at the end without
+disturbing what you placed.
 
-**Sonner.** Un carillon quand une session se met à vous attendre, un autre quand elle vient
-de finir. Trois niveaux, du plus précis au plus général : le son d'une conversation l'emporte
-sur celui de son dossier, qui l'emporte sur le réglage global. « Aucun » est un choix de
-silence, pas une absence de choix — il ne remonte donc pas d'un cran.
+**Chimes.** One when a session starts waiting for you, another when it finishes. Three levels,
+most specific first: a conversation's sound beats its folder's, which beats the global
+setting. "None" is a chosen silence rather than an absent choice, so it does not fall through
+to the level above.
 
-Les sons de macOS servent de base. Koh-Vibe propose d'y ajouter une bibliothèque de cent sons
-d'interface courts ([Kenney](https://kenney.nl/assets/interface-sounds), CC0), téléchargée une
-seule fois et rangée chez lui — jamais dans `~/Library/Sounds`, dont la liste sert aussi au
-panneau Son du système. La ligne *Bibliothèque de sons* des réglages l'installe et la retire.
+The macOS sounds are the baseline. Koh-Vibe offers to add a library of a hundred short
+interface sounds ([Kenney](https://kenney.nl/assets/interface-sounds), CC0), downloaded once
+and kept in its own folder — never in `~/Library/Sounds`, whose listing also feeds the system
+Sound panel. The *Sound library* row in the settings installs and removes it.
 
-Dans la liste de choix, les flèches font entendre chaque son ; **→** rejoue le son survolé.
+In the picker, the arrow keys play each sound; **→** replays the highlighted one.
 
-**Retirer.** Clic droit sur une session → *Retirer de la liste*. Rien n'est arrêté : Claude
-Code tourne dans son terminal, et une session encore vivante réapparaîtra à son prochain
-événement.
+**Removing.** Right-click a session → *Remove from the list*. Nothing is stopped: Claude Code
+runs in its own terminal, and a session still alive reappears on its next event.
 
-## Où vivent les données
+## Where the data lives
 
-Tout tient dans `~/.koh-vibe/` :
+Everything sits under `~/.koh-vibe/`:
 
 | | |
 |---|---|
-| `bin/` | le pont et l'enrobage de statusline, copiés à l'installation des hooks |
-| `events/` | le spool : un fichier par événement, consommé puis effacé |
-| `events/rejected/` | ce qui n'a pas pu être lu, gardé plutôt que jeté |
-| `sessions/` | l'état réduit, un fichier par session |
-| `requests/` | les demandes de mise au premier plan, d'une fenêtre à l'autre |
-| `backups/` | les copies de `settings.json` prises avant chaque pose de hooks |
-| `groups.json` | les dossiers, leurs couleurs, l'ordre choisi et les sons |
-| `settings.json` | les sons globaux et le volume |
-| `usage.json` | le dernier relevé de consommation, mis en cache |
-| `status.json` | le dernier instantané de la statusline |
-| `sounds/` | la bibliothèque, si vous l'avez installée |
+| `bin/` | the bridge and the status-line wrapper, copied when the hooks are installed |
+| `events/` | the spool: one file per event, consumed then deleted |
+| `events/rejected/` | what could not be read, kept rather than dropped |
+| `sessions/` | the reduced state, one file per session |
+| `requests/` | focus requests, from one window to another |
+| `backups/` | copies of `settings.json` taken before each hook install |
+| `groups.json` | folders, their colours, the chosen order and the sounds |
+| `settings.json` | global sounds and volume |
+| `usage.json` | the last usage reading, cached |
+| `status.json` | the last status-line snapshot |
+| `sounds/` | the library, if you installed it |
 
-Ces fichiers sont **partagés entre toutes les fenêtres et tous les éditeurs** de la machine :
-un dossier créé d'un côté apparaît de l'autre, et un son choisi une fois vaut partout.
-Désinstaller l'extension ne les efface pas ; supprimer le dossier suffit à repartir de zéro.
+These files are **shared across every window and every editor** on the machine: a folder made
+on one side shows up on the other, and a sound chosen once applies everywhere. Uninstalling
+the extension does not erase them; deleting the directory is enough to start over.
 
-## Comment ça marche
+## How it works
 
-Les hooks de Claude Code appellent un **pont shell** qui n'interprète rien : il recopie ce
-qu'il reçoit dans le spool, n'écrit jamais sur la sortie standard, et sort toujours en
-succès. Un pont qui analyserait le JSON pourrait échouer, et un hook qui échoue perturbe la
-session qu'il observe — le seul comportement acceptable est de ne rien casser, quitte à
-perdre un événement.
+Claude Code's hooks call a **shell bridge that parses nothing**: it copies what it receives
+into the spool, never writes to standard output, and always exits successfully. A bridge that
+parsed JSON could fail, and a failing hook disturbs the session it observes — the only
+acceptable behaviour is to break nothing, even at the cost of losing an event.
 
-Chaque fenêtre surveille le spool de son côté, réduit les événements en état, et l'affiche.
-Aucun verrou : les fichiers partagés sont fusionnés à trois voies (l'état lu, le nôtre, et
-le plus frais relu juste avant d'écrire), pour que deux fenêtres qui rangent en même temps ne
-s'effacent pas l'une l'autre.
+Each window watches the spool on its own, reduces the events into state, and displays it. No
+locks: shared files are merged three ways (the state read, ours, and the freshest one re-read
+just before writing), so two windows filing at the same time do not erase each other.
 
-La consommation vient de l'API d'Anthropic, interrogée au plus une fois toutes les cinq
-minutes et mise en cache dans un fichier partagé — sinon chaque fenêtre irait chercher de son
-côté exactement la même chose. Le jeton OAuth est lu dans le trousseau du système, jamais
-journalisé ni écrit sur le disque.
+Usage comes from Anthropic's API, called at most once every five minutes and cached in a
+shared file — otherwise every window would fetch exactly the same thing. The OAuth token is
+read from the system keychain, never logged and never written to disk.
 
-## Développement
+## Contributing
+
+Outside contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Development
 
 ```bash
 pnpm install
-pnpm build       # compile vers out/, et date le paquet depuis le dernier tag
-pnpm test        # 500 tests, sans hôte d'extensions
-pnpm typecheck   # types de src ET de test
-pnpm package     # produit le .vsix
+pnpm build       # compiles to out/, and stamps the build from the latest tag
+pnpm test        # 501 tests, no extension host needed
+pnpm typecheck   # types across src AND test
+pnpm package     # produces the .vsix
 ```
 
-Les tests ne démarrent pas VSCode : `vscode` est résolu vers un bouchon
-(`test/stubs/vscode.ts`), ce qui rend l'arbre, les commandes et le pont testables en
-millisecondes. Le typeur, lui, travaille contre la vraie API — un bouchon qui divergerait de
-ses signatures ne prouverait plus rien.
+Tests do not start VSCode: `vscode` resolves to a stub (`test/stubs/vscode.ts`), which makes
+the tree, the commands and the bridge testable in milliseconds. The type checker, however,
+works against the real API — a stub that drifted from its signatures would prove nothing.
 
-`scripts/make-icons.cjs` regénère les deux icônes à partir de la table de points qu'il
-contient : c'est elle, la source du dessin.
+`scripts/make-icons.cjs` regenerates both icons from the point table it contains: that table
+is the source of the drawing.
 
-Le versionnement est décrit dans [CLAUDE.md](CLAUDE.md) — une PR mergée sur `main` vaut une
-version, et la livraison la pose toute seule.
+Versioning is described in [CLAUDE.md](CLAUDE.md) — one pull request merged into `main` is one
+version, and the delivery workflow posts it on its own.
 
 ## Licence
 

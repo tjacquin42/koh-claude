@@ -48,10 +48,13 @@ dépôt : noms de symboles, commentaires, messages de commit, titres et corps de
 de merge, noms de branches, libellés d'issues. Le dépôt est public — un contributeur qui ne
 parle pas français doit pouvoir s'y retrouver seul.
 
-**Les fichiers d'information sont bilingues.** `README.md`, `CONTRIBUTING.md`, `CHANGELOG.md`
-existent en anglais (fichier principal) et en français (suffixe `.fr.md`). L'anglais fait
-foi ; le français le suit. Les deux versions se modifient dans le même commit — une
-traduction en retard est pire qu'absente, parce qu'elle affirme quelque chose de faux.
+**Les fichiers d'information sont bilingues.** `README.md` et `CONTRIBUTING.md` existent en
+anglais (fichier principal) et en français (suffixe `.fr.md`). L'anglais fait foi ; le
+français le suit. Les deux versions se modifient dans le même commit — une traduction en
+retard est pire qu'absente, parce qu'elle affirme quelque chose de faux.
+
+`CHANGELOG.md` échappe à la règle : il est engendré par `bump-version.sh` à partir des titres
+de PR, qui sont en anglais. Le traduire supposerait de traduire des titres déjà livrés.
 
 **Le texte affiché suit l'utilisateur.** Aucune chaîne visible n'est écrite en dur dans une
 langue : les libellés contribués passent par `package.nls.json`, ceux du code par
