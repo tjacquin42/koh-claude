@@ -21,10 +21,11 @@ export const STATUS_ICON_DIR = 'status';
  * API ne permet de passer outre : le sélecteur ne vise que `.codicon`, et une
  * icône-image n'en est pas une.
  *
- * Le prix est assumé : les couleurs sont figées aux valeurs par défaut de
- * VSCode (charts.* en clair et en sombre) au lieu de suivre un thème tiers.
- * Une pastille lisible mais d'un bleu un peu différent vaut mieux qu'une
- * pastille au bon bleu qu'on ne voit plus quand on en a besoin.
+ * Le prix est assumé : les couleurs sont figées, en clair et en sombre, au lieu
+ * de suivre un thème tiers. Une pastille lisible mais d'un bleu un peu différent
+ * vaut mieux qu'une pastille au bon bleu qu'on ne voit plus quand on en a besoin.
+ * Les valeurs vivent dans scripts/make-status-icons.cjs, qui dit d'où vient
+ * chacune — et pourquoi `waiting` est le seul à ne pas venir de VSCode.
  */
 export function statusIconPath(extensionPath: string, status: Status): { light: string; dark: string } {
   const file = (theme: 'light' | 'dark'): string =>

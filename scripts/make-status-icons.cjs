@@ -19,21 +19,29 @@ const { join } = require('node:path');
 
 /**
  * Les valeurs par DÉFAUT des couleurs de VSCode que portait chaque statut du
- * temps des `ThemeIcon` — relevées dans son registre, pas choisies ici, pour que
- * le passage à l'image ne change pas l'apparence hors sélection.
+ * temps des `ThemeIcon` — relevées dans son registre plutôt que choisies ici,
+ * pour que le passage à l'image ne change pas l'apparence hors sélection.
  *
  *   running     charts.blue    → editorInfo.foreground
- *   waiting     charts.yellow  → editorWarning.foreground
  *   done_unseen charts.green
  *   idle        descriptionForeground   (le thème sombre l'obtient à 70 % du texte)
  *   stale       disabledForeground      (…et celui-ci à 50 %, d'où l'opacité)
+ *
+ * Une seule exception, assumée : `waiting` était `charts.yellow`, un or foncé
+ * (#CCA700) qui se lit mal comme une alerte — or c'est le seul statut qui
+ * demande quelque chose à l'utilisateur, et le seul qui ne se résoudra pas tout
+ * seul. Il passe donc à l'orange. Surtout pas `charts.orange`, qui vaut
+ * `#EA5C0055` : une couleur de FOND de surlignage, à 33 % d'opacité, délavée en
+ * pastille pleine. Les deux valeurs ci-dessous sont des oranges opaques, tenus
+ * au-dessus de 3:1 sur leur fond respectif — le seuil WCAG d'un élément
+ * graphique porteur de sens.
  *
  * L'opacité est portée par le SVG parce qu'elle fait partie de la couleur :
  * `#CCCCCC80` est un canal alpha dans le registre de VSCode, pas une nuance de gris.
  */
 const PALETTE = {
   running: { dark: ['#59A4F9', 1], light: ['#0063D3', 1] },
-  waiting: { dark: ['#CCA700', 1], light: ['#BF8803', 1] },
+  waiting: { dark: ['#D18616', 1], light: ['#C4700E', 1] },
   done_unseen: { dark: ['#89D185', 1], light: ['#388A34', 1] },
   idle: { dark: ['#CCCCCC', 0.7], light: ['#717171', 1] },
   stale: { dark: ['#CCCCCC', 0.5], light: ['#616161', 0.5] },
