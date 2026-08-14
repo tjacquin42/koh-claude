@@ -149,8 +149,8 @@ describe('FooterTree — la vue épinglée en bas', () => {
     return f;
   };
 
-  it('expose les trois réglages, et rien d autre — la consommation a sa propre vue', () => {
-    expect(footer().getChildren().map((n) => n.kind)).toEqual(['sound', 'sound', 'volume']);
+  it('expose les réglages du son, et rien d autre — la consommation a sa propre vue', () => {
+    expect(footer().getChildren().map((n) => n.kind)).toEqual(['sound', 'sound', 'volume', 'library']);
   });
 
   it('rend chaque ligne cliquable, vers sa propre commande', () => {
@@ -159,7 +159,18 @@ describe('FooterTree — la vue épinglée en bas', () => {
       'kohVibe.chooseSound',
       'kohVibe.chooseSound',
       'kohVibe.chooseVolume',
+      'kohVibe.installSounds',
     ]);
+  });
+
+  it('la ligne de bibliothèque bascule entre installer et retirer', () => {
+    // La même ligne dit l état ET l action : proposer « installer » alors que
+    // la bibliothèque est là enverrait chercher une deuxième copie.
+    const f = footer();
+    f.setLibrary(100);
+    const row = f.getChildren().find((n) => n.kind === 'library')!;
+    expect(f.getTreeItem(row).label).toBe('Bibliothèque de sons : 100 sons');
+    expect(f.getTreeItem(row).command?.command).toBe('kohVibe.removeSounds');
   });
 
   it('dit à la commande de quel événement il s agit', () => {

@@ -1,3 +1,21 @@
+import type { ChimeEvent } from '../sound/model';
+
+/** Les deux événements qui sonnent, dans l'ordre où ils s'affichent. */
+export const CHIME_EVENTS: readonly ChimeEvent[] = ['waiting', 'done'];
+
+/**
+ * Le champ de dossier qui porte le son d'un événement.
+ *
+ * Deux champs plats plutôt qu'un objet imbriqué : la fusion à trois voies de
+ * `store.ts` compare les attributs d'un dossier un à un, et un objet l'aurait
+ * obligée à comparer en profondeur — le genre de détail qu'on oublie, et qui
+ * fait disparaître un réglage en silence.
+ */
+const GROUP_SOUND: Readonly<Record<ChimeEvent, 'soundWaiting' | 'soundDone'>> = {
+  waiting: 'soundWaiting',
+  done: 'soundDone',
+};
+
 export interface Group {
   id: string;
   name: string;
@@ -11,10 +29,22 @@ export interface Group {
    */
   color?: string;
   /**
-   * Le son de ce dossier, s'il en a un. Il l'emporte sur le réglage global et
-   * cède devant celui d'une conversation — voir `soundFor`.
+   * Les sons de ce dossier, un par événement. Ils l'emportent sur le réglage
+   * global et cèdent devant ceux d'une conversation — voir `soundFor`.
+   *
+   * Un son par événement, et non un pour le dossier : « le son de ce dossier »
+   * ne disait pas ce qu'il réglait, et l'utilisateur ne pouvait pas le
+   * découvrir sans attendre une vraie bascule.
    */
-  sound?: string;
+  soundWaiting?: string;
+  soundDone?: string;
+}
+
+/** Les sons propres aux conversations, rangés par événement. */
+export type SessionSounds = Readonly<Record<ChimeEvent, Readonly<Record<string, string>>>>;
+
+export function emptySessionSounds(): SessionSounds {
+  return { waiting: {}, done: {} };
 }
 
 export interface GroupsState {
@@ -31,7 +61,7 @@ export interface GroupsState {
    */
   sessionOrder: Readonly<Record<string, readonly string[]>>;
   /** Le son propre à une conversation. Le plus prioritaire des trois niveaux. */
-  sessionSounds: Readonly<Record<string, string>>;
+  sessionSounds: SessionSounds;
   /** Champs du fichier que nous ne connaissons pas : préservés tels quels à l'écriture. */
   unknown: Readonly<Record<string, unknown>>;
 }
@@ -42,7 +72,7 @@ const KNOWN = new Set(['version', 'groups', 'assignments', 'sessionOrder', 'sess
 export const UNFILED = '';
 
 export function emptyGroups(): GroupsState {
-  return { groups: [], assignments: {}, sessionOrder: {}, sessionSounds: {}, unknown: {} };
+  return { groups: [], assignments: {}, sessionOrder: {}, sessionSounds: emptySessionSounds(), unknown: {} };
 }
 
 /** `undefined` (« Sans dossier ») et la chaîne vide désignent le même seau. */
@@ -83,10 +113,12 @@ export function parseGroups(raw: string): GroupsState {
       seenIds.add(id);
       const order = typeof g['order'] === 'number' && Number.isFinite(g['order']) ? g['order'] : i;
       const color = name(g['color']);
-      const sound = name(g['sound']);
       const group: Group = { id, name: label, order };
       if (color !== undefined) group.color = color;
-      if (sound !== undefined) group.sound = sound;
+      for (const event of CHIME_EVENTS) {
+        const sound = name(g[GROUP_SOUND[event]]);
+        if (sound !== undefined) group[GROUP_SOUND[event]] = sound;
+      }
       groups.push(group);
     }
   }
@@ -117,11 +149,19 @@ export function parseGroups(raw: string): GroupsState {
     }
   }
 
-  const sessionSounds: Record<string, string> = {};
+  // Rangés par événement, et non à plat : une forme plate (celle d'avant les
+  // sons par événement) n'est pas convertie mais ignorée — deviner à quel
+  // événement rattacher un son ferait sonner l'éditeur là où l'utilisateur ne
+  // l'a pas demandé.
+  const sessionSounds: Record<ChimeEvent, Record<string, string>> = { waiting: {}, done: {} };
   const rawSounds = root['sessionSounds'];
   if (isRecord(rawSounds)) {
-    for (const [sessionId, sound] of Object.entries(rawSounds)) {
-      if (typeof sound === 'string' && sound.length > 0) sessionSounds[sessionId] = sound;
+    for (const event of CHIME_EVENTS) {
+      const forEvent = rawSounds[event];
+      if (!isRecord(forEvent)) continue;
+      for (const [sessionId, sound] of Object.entries(forEvent)) {
+        if (typeof sound === 'string' && sound.length > 0) sessionSounds[event][sessionId] = sound;
+      }
     }
   }
 
@@ -160,28 +200,47 @@ export function renameGroup(s: GroupsState, id: string, label: string): GroupsSt
  * global. Une chaîne vide à un niveau ne « perce » pas vers le suivant — c'est
  * un choix explicite de silence, pas une absence de choix.
  */
-export function soundFor(s: GroupsState, sessionId: string, fallback: string): string {
-  const own = s.sessionSounds[sessionId];
+export function soundFor(
+  s: GroupsState,
+  sessionId: string,
+  event: ChimeEvent,
+  fallback: string,
+): string {
+  const own = s.sessionSounds[event][sessionId];
   if (own !== undefined) return own;
   const groupId = s.assignments[sessionId];
   const group = groupId === undefined ? undefined : s.groups.find((g) => g.id === groupId);
-  return group?.sound ?? fallback;
+  return group?.[GROUP_SOUND[event]] ?? fallback;
 }
 
 /** `undefined` retire le son propre et rend la conversation à son dossier. */
-export function setSessionSound(s: GroupsState, sessionId: string, sound: string | undefined): GroupsState {
-  const { [sessionId]: _dropped, ...rest } = s.sessionSounds;
-  return { ...s, sessionSounds: sound === undefined ? rest : { ...rest, [sessionId]: sound } };
+export function setSessionSound(
+  s: GroupsState,
+  sessionId: string,
+  event: ChimeEvent,
+  sound: string | undefined,
+): GroupsState {
+  const { [sessionId]: _dropped, ...rest } = s.sessionSounds[event];
+  return {
+    ...s,
+    sessionSounds: { ...s.sessionSounds, [event]: sound === undefined ? rest : { ...rest, [sessionId]: sound } },
+  };
 }
 
 /** `undefined` retire le son du dossier et le rend au réglage global. */
-export function setGroupSound(s: GroupsState, id: string, sound: string | undefined): GroupsState {
+export function setGroupSound(
+  s: GroupsState,
+  id: string,
+  event: ChimeEvent,
+  sound: string | undefined,
+): GroupsState {
+  const key = GROUP_SOUND[event];
   return {
     ...s,
     groups: s.groups.map((g) => {
       if (g.id !== id) return g;
-      const { sound: _drop, ...rest } = g;
-      return sound === undefined ? rest : { ...rest, sound };
+      const { [key]: _drop, ...rest } = g;
+      return sound === undefined ? rest : { ...rest, [key]: sound };
     }),
   };
 }
@@ -273,7 +332,9 @@ export function reorder(
 
 export function pruneAssignments(s: GroupsState, live: ReadonlySet<string>): GroupsState {
   const kept = Object.entries(s.assignments).filter(([sessionId]) => live.has(sessionId));
-  const soundEntries = Object.entries(s.sessionSounds).filter(([sessionId]) => live.has(sessionId));
+  const soundEntries = CHIME_EVENTS.map(
+    (event) => [event, Object.entries(s.sessionSounds[event]).filter(([sessionId]) => live.has(sessionId))] as const,
+  );
   const orderEntries = Object.entries(s.sessionOrder)
     .map(([key, ids]) => [key, ids.filter((id) => live.has(id))] as const)
     .filter(([, ids]) => ids.length > 0);
@@ -283,12 +344,17 @@ export function pruneAssignments(s: GroupsState, live: ReadonlySet<string>): Gro
     orderEntries.every(([key, ids]) => ids.length === (s.sessionOrder[key]?.length ?? -1));
   // Même identité renvoyée quand il n'y a rien à retirer : l'appelant s'en sert
   // pour éviter une écriture inutile (groups/purge.ts).
-  const soundsUnchanged = soundEntries.length === Object.keys(s.sessionSounds).length;
+  const soundsUnchanged = soundEntries.every(
+    ([event, kept]) => kept.length === Object.keys(s.sessionSounds[event]).length,
+  );
   if (assignmentsUnchanged && orderUnchanged && soundsUnchanged) return s;
   return {
     ...s,
     assignments: Object.fromEntries(kept),
     sessionOrder: Object.fromEntries(orderEntries),
-    sessionSounds: Object.fromEntries(soundEntries),
+    sessionSounds: {
+      waiting: Object.fromEntries(soundEntries.find(([e]) => e === 'waiting')?.[1] ?? []),
+      done: Object.fromEntries(soundEntries.find(([e]) => e === 'done')?.[1] ?? []),
+    },
   };
 }

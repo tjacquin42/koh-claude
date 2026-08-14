@@ -20,9 +20,9 @@
     },
     "views": {
       "koh-vibe": [
-        { "id": "kohVibe.sessions", "name": "Sessions", "icon": "resources/island.svg" },
-        { "id": "kohVibe.usage", "name": "Consommation", "type": "webview", "icon": "resources/island.svg" },
-        { "id": "kohVibe.settings", "name": "Réglages", "icon": "resources/island.svg" }
+        { "id": "kohVibe.sessions", "name": "Sessions", "icon": "resources/island.svg", "initialSize": 20 },
+        { "id": "kohVibe.usage", "name": "Consommation", "type": "webview", "icon": "resources/island.svg", "initialSize": 3 },
+        { "id": "kohVibe.settings", "name": "Réglages", "icon": "resources/island.svg", "initialSize": 4 }
       ]
     },
     "commands": [
@@ -36,10 +36,14 @@
       { "command": "kohVibe.deleteGroup", "title": "Supprimer le dossier", "category": "Koh-Vibe" },
       { "command": "kohVibe.chooseSound", "title": "Son d'un événement", "category": "Koh-Vibe" },
       { "command": "kohVibe.chooseVolume", "title": "Volume des carillons", "category": "Koh-Vibe" },
-      { "command": "kohVibe.installSounds", "title": "Ajouter des sons à ma bibliothèque", "category": "Koh-Vibe" },
-      { "command": "kohVibe.offerSounds", "title": "Proposer d'ajouter des sons", "category": "Koh-Vibe" },
-      { "command": "kohVibe.soundGroup", "title": "Son du dossier", "category": "Koh-Vibe" },
-      { "command": "kohVibe.soundSession", "title": "Son de cette conversation", "category": "Koh-Vibe" },
+      { "command": "kohVibe.installSounds", "title": "Installer la bibliothèque de sons", "category": "Koh-Vibe" },
+      { "command": "kohVibe.removeSounds", "title": "Retirer la bibliothèque de sons", "category": "Koh-Vibe" },
+      { "command": "kohVibe.offerSounds", "title": "Proposer la bibliothèque de sons", "category": "Koh-Vibe" },
+      { "command": "kohVibe.replaySound", "title": "Rejouer le son survolé", "category": "Koh-Vibe" },
+      { "command": "kohVibe.soundGroup.waiting", "title": "Son du dossier quand ça t'attend", "category": "Koh-Vibe" },
+      { "command": "kohVibe.soundGroup.done", "title": "Son du dossier quand c'est terminé", "category": "Koh-Vibe" },
+      { "command": "kohVibe.soundSession.waiting", "title": "Son de la conversation quand ça t'attend", "category": "Koh-Vibe" },
+      { "command": "kohVibe.soundSession.done", "title": "Son de la conversation quand c'est terminé", "category": "Koh-Vibe" },
       { "command": "kohVibe.refreshUsage", "title": "Rafraîchir la consommation", "category": "Koh-Vibe" }
     ],
     "configuration": {
@@ -64,6 +68,9 @@
         }
       }
     },
+    "keybindings": [
+      { "command": "kohVibe.replaySound", "key": "right", "when": "kohVibe.pickingSound && inQuickOpen" }
+    ],
     "menus": {
       "view/title": [
         { "command": "kohVibe.refresh", "when": "view == kohVibe.sessions", "group": "navigation" },
@@ -72,9 +79,11 @@
       "view/item/context": [
         { "command": "kohVibe.renameGroup", "when": "view == kohVibe.sessions && viewItem == group" },
         { "command": "kohVibe.colorGroup", "when": "view == kohVibe.sessions && viewItem == group" },
-        { "command": "kohVibe.soundGroup", "when": "view == kohVibe.sessions && viewItem == group" },
-        { "command": "kohVibe.deleteGroup", "when": "view == kohVibe.sessions && viewItem == group" },
-        { "command": "kohVibe.soundSession", "when": "view == kohVibe.sessions && viewItem == session" }
+        { "command": "kohVibe.soundGroup.waiting", "when": "view == kohVibe.sessions && viewItem == group", "group": "son@1" },
+        { "command": "kohVibe.soundGroup.done", "when": "view == kohVibe.sessions && viewItem == group", "group": "son@2" },
+        { "command": "kohVibe.deleteGroup", "when": "view == kohVibe.sessions && viewItem == group", "group": "zzz@1" },
+        { "command": "kohVibe.soundSession.waiting", "when": "view == kohVibe.sessions && viewItem == session", "group": "son@1" },
+        { "command": "kohVibe.soundSession.done", "when": "view == kohVibe.sessions && viewItem == session", "group": "son@2" }
       ]
     }
   },

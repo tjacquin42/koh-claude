@@ -18,12 +18,28 @@ export interface SoundSettings {
 
 export type FooterNode =
   | { kind: 'sound'; event: ChimeEvent; name: string }
-  | { kind: 'volume'; volume: number };
+  | { kind: 'volume'; volume: number }
+  | { kind: 'library'; count: number };
 
 const EVENT_FR: Record<ChimeEvent, string> = {
   waiting: "t'attend",
   done: 'terminé',
 };
+
+/**
+ * Le titre d'un choix de son. Il nomme l'ÉVÉNEMENT, pas le niveau : « Son de ce
+ * dossier » ne disait pas ce qu'on réglait, et le niveau se lit déjà dans le
+ * menu par lequel on est arrivé.
+ */
+export const EVENT_TITLE: Record<ChimeEvent, string> = {
+  waiting: "Son quand ça t'attend",
+  done: "Son quand c'est terminé",
+};
+
+/** Combien de sons la bibliothèque a posés, et donc s'il faut l'installer ou la retirer. */
+export function libraryRowLabel(count: number): string {
+  return count === 0 ? 'Bibliothèque de sons : installer…' : `Bibliothèque de sons : ${count} sons`;
+}
 
 /** Le libellé dit l'état courant, pas une invitation vague : « Son … : Ping » se lit d'un coup d'œil. */
 export function soundRowLabel(event: ChimeEvent, name: string): string {
@@ -38,6 +54,7 @@ export class FooterTree implements vscode.TreeDataProvider<FooterNode> {
   private readonly emitter = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this.emitter.event;
   private sound: SoundSettings = { waiting: NO_SOUND, done: NO_SOUND, volume: 0.5 };
+  private library = 0;
   // Même règle que l'arbre des sessions : ne rien annoncer quand rien n'a
   // changé, sinon l'infobulle s'escamote sous la souris.
   private rendered: string | undefined;
@@ -47,8 +64,13 @@ export class FooterTree implements vscode.TreeDataProvider<FooterNode> {
     this.refresh();
   }
 
+  setLibrary(count: number): void {
+    this.library = count;
+    this.refresh();
+  }
+
   private refresh(): void {
-    const next = JSON.stringify(this.sound);
+    const next = JSON.stringify([this.sound, this.library]);
     if (next === this.rendered) return;
     this.rendered = next;
     this.emitter.fire();
@@ -60,6 +82,7 @@ export class FooterTree implements vscode.TreeDataProvider<FooterNode> {
       { kind: 'sound', event: 'waiting', name: this.sound.waiting },
       { kind: 'sound', event: 'done', name: this.sound.done },
       { kind: 'volume', volume: this.sound.volume },
+      { kind: 'library', count: this.library },
     ];
   }
 
@@ -77,10 +100,23 @@ export class FooterTree implements vscode.TreeDataProvider<FooterNode> {
       item.command = { command: 'kohVibe.chooseSound', title: 'Choisir le son', arguments: [node.event] };
       return item;
     }
-    const item = new vscode.TreeItem(volumeRowLabel(node.volume));
-    item.tooltip = 'Volume des carillons.\nCliquez pour le régler ; chaque pas se fait entendre.';
-    item.iconPath = new vscode.ThemeIcon('megaphone', new vscode.ThemeColor('descriptionForeground'));
-    item.command = { command: 'kohVibe.chooseVolume', title: 'Régler le volume' };
+    if (node.kind === 'volume') {
+      const item = new vscode.TreeItem(volumeRowLabel(node.volume));
+      item.tooltip = 'Volume des carillons.\nCliquez pour le régler ; chaque pas se fait entendre.';
+      item.iconPath = new vscode.ThemeIcon('megaphone', new vscode.ThemeColor('descriptionForeground'));
+      item.command = { command: 'kohVibe.chooseVolume', title: 'Régler le volume' };
+      return item;
+    }
+    const item = new vscode.TreeItem(libraryRowLabel(node.count));
+    item.tooltip =
+      node.count === 0
+        ? "Cent sons d'interface courts, libres de droits, téléchargés une seule fois."
+        : 'Cliquez pour retirer la bibliothèque. Vos sons et ceux du système ne bougent pas.';
+    item.iconPath = new vscode.ThemeIcon('library', new vscode.ThemeColor('descriptionForeground'));
+    item.command = {
+      command: node.count === 0 ? 'kohVibe.installSounds' : 'kohVibe.removeSounds',
+      title: 'Bibliothèque de sons',
+    };
     return item;
   }
 

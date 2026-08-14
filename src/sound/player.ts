@@ -2,16 +2,29 @@ import { execFile } from 'node:child_process';
 import { homedir } from 'node:os';
 import { basename, extname, join } from 'node:path';
 import { readdir } from 'node:fs/promises';
+import { kohVibeHome } from '../paths';
+import { librarySoundsDir } from './library';
 
 /**
  * Où l'on cherche les sons.
  *
- * Les sons système d'abord, puis ceux de l'utilisateur : `~/Library/Sounds` est
- * l'emplacement prévu par macOS pour en ajouter, et c'est ce qui donne une
- * bibliothèque sans limite sans embarquer de fichiers audio dans le paquet —
- * ni en discuter la licence dans un dépôt public.
+ * Trois emplacements, dans cet ordre : ceux du système, ceux que l'utilisateur
+ * a déposés dans `~/Library/Sounds` (l'endroit prévu par macOS), et la
+ * bibliothèque que Koh-Vibe propose d'installer chez lui. Aucun fichier audio
+ * n'est donc embarqué dans le paquet — ni sa licence à discuter dans un dépôt
+ * public.
+ *
+ * La bibliothèque vient EN DERNIER pour la même raison que l'ordre des deux
+ * autres : en cas de noms identiques, le premier trouvé gagne, et ce que
+ * l'utilisateur a posé lui-même ne doit jamais être supplanté par ce que nous
+ * avons installé pour lui.
  */
-export const SOUND_DIRS = ['/System/Library/Sounds', join(homedir(), 'Library', 'Sounds')];
+export function soundDirs(home: string): string[] {
+  return ['/System/Library/Sounds', join(homedir(), 'Library', 'Sounds'), librarySoundsDir(home)];
+}
+
+/** Les dossiers de la machine courante, pour les appels qui n'ont pas la racine sous la main. */
+export const SOUND_DIRS = soundDirs(kohVibeHome());
 
 /** Ce qu'`afplay` sait lire, et qui a un sens comme notification. */
 const PLAYABLE = new Set(['.aiff', '.aif', '.wav', '.m4a', '.m4r', '.mp3', '.caf']);

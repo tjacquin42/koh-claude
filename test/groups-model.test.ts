@@ -306,52 +306,75 @@ describe('sessionOrder', () => {
   });
 });
 
-describe('soundFor — trois niveaux de priorité', () => {
+describe('soundFor — trois niveaux de priorité, un réglage par événement', () => {
   const state = (): GroupsState =>
     parseGroups(
       JSON.stringify({
         version: 1,
-        groups: [{ id: 'g1', name: 'Dossier', order: 0, sound: 'SonDuDossier' }],
+        groups: [
+          { id: 'g1', name: 'Dossier', order: 0, soundWaiting: 'DossierAttend', soundDone: 'DossierFini' },
+        ],
         assignments: { s1: 'g1' },
-        sessionSounds: { s1: 'SonDeLaConversation' },
+        sessionSounds: { waiting: { s1: 'ConvAttend' }, done: { s1: 'ConvFini' } },
       }),
     );
 
   it('la conversation l emporte sur son dossier', () => {
-    expect(soundFor(state(), 's1', 'SonGlobal')).toBe('SonDeLaConversation');
+    expect(soundFor(state(), 's1', 'waiting', 'Global')).toBe('ConvAttend');
+    expect(soundFor(state(), 's1', 'done', 'Global')).toBe('ConvFini');
   });
 
   it('le dossier l emporte sur le réglage global', () => {
-    expect(soundFor(setSessionSound(state(), 's1', undefined), 's1', 'SonGlobal')).toBe('SonDuDossier');
+    const s = setSessionSound(state(), 's1', 'waiting', undefined);
+    expect(soundFor(s, 's1', 'waiting', 'Global')).toBe('DossierAttend');
   });
 
   it('le réglage global sert de dernier recours', () => {
-    let s = setSessionSound(state(), 's1', undefined);
-    s = setGroupSound(s, 'g1', undefined);
-    expect(soundFor(s, 's1', 'SonGlobal')).toBe('SonGlobal');
+    let s = setSessionSound(state(), 's1', 'waiting', undefined);
+    s = setGroupSound(s, 'g1', 'waiting', undefined);
+    expect(soundFor(s, 's1', 'waiting', 'Global')).toBe('Global');
   });
 
   it('une session hors dossier retombe directement sur le global', () => {
-    expect(soundFor(state(), 'inconnue', 'SonGlobal')).toBe('SonGlobal');
+    expect(soundFor(state(), 'inconnue', 'waiting', 'Global')).toBe('Global');
   });
 
   it('un silence choisi ne perce PAS vers le niveau au-dessus', () => {
     // « Aucun » est un choix explicite : il doit taire la conversation même si
     // son dossier a un son. Sans ça, on ne pourrait jamais faire taire une seule
     // conversation d un dossier sonore.
-    expect(soundFor(setSessionSound(state(), 's1', ''), 's1', 'SonGlobal')).toBe('');
-    const muet = setGroupSound(setSessionSound(state(), 's1', undefined), 'g1', '');
-    expect(soundFor(muet, 's1', 'SonGlobal')).toBe('');
+    expect(soundFor(setSessionSound(state(), 's1', 'waiting', ''), 's1', 'waiting', 'Global')).toBe('');
+    const muet = setGroupSound(setSessionSound(state(), 's1', 'waiting', undefined), 'g1', 'waiting', '');
+    expect(soundFor(muet, 's1', 'waiting', 'Global')).toBe('');
+  });
+
+  it('régler un événement ne touche pas à l autre — à aucun des deux niveaux', () => {
+    // Le défaut que ces réglages par événement viennent corriger : un seul son
+    // par niveau, dont on ne savait pas quand il sonnerait. Les poser
+    // séparément n a de sens que s ils restent séparés.
+    const s = setSessionSound(setGroupSound(state(), 'g1', 'done', 'AutreFini'), 's1', 'done', 'AutreConvFini');
+    expect(soundFor(s, 's1', 'waiting', 'Global')).toBe('ConvAttend');
+    expect(s.groups[0]?.soundWaiting).toBe('DossierAttend');
   });
 
   it('fait le tour du fichier', () => {
     const relu = parseGroups(serializeGroups(state()));
-    expect(soundFor(relu, 's1', 'SonGlobal')).toBe('SonDeLaConversation');
-    expect(relu.groups[0]?.sound).toBe('SonDuDossier');
+    expect(soundFor(relu, 's1', 'waiting', 'Global')).toBe('ConvAttend');
+    expect(soundFor(relu, 's1', 'done', 'Global')).toBe('ConvFini');
+    expect(relu.groups[0]?.soundDone).toBe('DossierFini');
   });
 
-  it('oublie le son d une session qui n existe plus', () => {
+  it('ignore un fichier écrit avant les sons par événement, plutôt que de deviner', () => {
+    // Rattacher un ancien son à un événement au hasard ferait carillonner
+    // l éditeur là où l utilisateur ne l a pas demandé.
+    const ancien = parseGroups(
+      JSON.stringify({ version: 1, groups: [], assignments: {}, sessionSounds: { s1: 'Ping' } }),
+    );
+    expect(ancien.sessionSounds).toEqual({ waiting: {}, done: {} });
+  });
+
+  it('oublie le son d une session qui n existe plus, dans les deux événements', () => {
     const pruned = pruneAssignments(state(), new Set());
-    expect(pruned.sessionSounds).toEqual({});
+    expect(pruned.sessionSounds).toEqual({ waiting: {}, done: {} });
   });
 });

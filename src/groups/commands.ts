@@ -1,3 +1,4 @@
+import type { ChimeEvent } from '../sound/model';
 import {
   assign, createGroup, deleteGroup, renameGroup, setGroupColor, setGroupSound,
   setSessionOrder, setSessionSound, unassign,
@@ -67,17 +68,19 @@ export async function colorGroupCommand(
 export async function soundGroupCommand(
   groupsFilePath: string,
   id: string,
+  event: ChimeEvent,
   sound: string | undefined,
 ): Promise<GroupsState> {
-  return updateGroups(groupsFilePath, (s) => setGroupSound(s, id, sound));
+  return updateGroups(groupsFilePath, (s) => setGroupSound(s, id, event, sound));
 }
 
 export async function soundSessionCommand(
   groupsFilePath: string,
   sessionId: string,
+  event: ChimeEvent,
   sound: string | undefined,
 ): Promise<GroupsState> {
-  return updateGroups(groupsFilePath, (s) => setSessionSound(s, sessionId, sound));
+  return updateGroups(groupsFilePath, (s) => setSessionSound(s, sessionId, event, sound));
 }
 
 /**

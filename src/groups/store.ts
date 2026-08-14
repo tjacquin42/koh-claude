@@ -103,10 +103,13 @@ function merge(latestRaw: string | undefined, before: GroupsState, after: Groups
     groups: mergeGroups(latest.groups, before.groups, after.groups),
     assignments: mergeAssignments(latest.assignments, before.assignments, after.assignments),
     sessionOrder: mergeSessionOrder(latest.sessionOrder, before.sessionOrder, after.sessionOrder),
-    // Même règle, même raison que les affectations : régler le son d'UNE
-    // conversation ne doit pas effacer celui qu'une autre fenêtre vient de poser
-    // sur une autre.
-    sessionSounds: mergeAssignments(latest.sessionSounds, before.sessionSounds, after.sessionSounds),
+    // Même règle, même raison que les affectations, et une fois par événement :
+    // régler le son « terminé » d'UNE conversation ne doit effacer ni son son
+    // « t'attend », ni celui qu'une autre fenêtre vient de poser sur une autre.
+    sessionSounds: {
+      waiting: mergeAssignments(latest.sessionSounds.waiting, before.sessionSounds.waiting, after.sessionSounds.waiting),
+      done: mergeAssignments(latest.sessionSounds.done, before.sessionSounds.done, after.sessionSounds.done),
+    },
   };
 }
 
@@ -165,7 +168,12 @@ async function readRaw(file: string): Promise<string | undefined> {
 
 /** L'ordre n'en fait pas partie : il est recalculé à la fin de la fusion. */
 function sameAttributes(a: Group, b: Group): boolean {
-  return a.name === b.name && a.color === b.color && a.sound === b.sound;
+  return (
+    a.name === b.name &&
+    a.color === b.color &&
+    a.soundWaiting === b.soundWaiting &&
+    a.soundDone === b.soundDone
+  );
 }
 
 /**
@@ -175,10 +183,11 @@ function sameAttributes(a: Group, b: Group): boolean {
  * pas de clé morte derrière lui.
  */
 function applyEdit(target: Group, edit: Group): Group {
-  const { color: _color, sound: _sound, ...rest } = target;
+  const { color: _color, soundWaiting: _waiting, soundDone: _done, ...rest } = target;
   const merged: Group = { ...rest, name: edit.name };
   if (edit.color !== undefined) merged.color = edit.color;
-  if (edit.sound !== undefined) merged.sound = edit.sound;
+  if (edit.soundWaiting !== undefined) merged.soundWaiting = edit.soundWaiting;
+  if (edit.soundDone !== undefined) merged.soundDone = edit.soundDone;
   return merged;
 }
 
