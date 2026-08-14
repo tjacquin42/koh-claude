@@ -1,9 +1,10 @@
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { parseUsage } from '../src/usage/model';
-import { readUsage } from '../src/usage/reader';
+import { forgetAttempts, readUsage, refreshFromApi, REFRESH_AFTER_MS } from '../src/usage/reader';
+import { accessTokenOf } from '../src/usage/oauth';
 import { usageColor, usageLabel, usageTooltip } from '../src/ui/usage-label';
 
 const reading = (raw: unknown, at = 0) => ({ usage: parseUsage(raw)!, source: 'statusline' as const, at });
@@ -109,8 +110,8 @@ describe('usageTooltip', () => {
 
   it('dit d où vient la mesure et depuis quand', () => {
     const now = 600_000;
-    expect(usageTooltip({ usage: parseUsage(REAL)!, source: 'vibe-island', at: now - 120_000 }, now)).toContain(
-      'Source : Vibe Island, il y a 2 min',
+    expect(usageTooltip({ usage: parseUsage(REAL)!, source: 'api', at: now - 120_000 }, now)).toContain(
+      'Source : Anthropic, il y a 2 min',
     );
     expect(usageTooltip({ usage: parseUsage(REAL)!, source: 'statusline', at: now }, now)).toContain(
       'Source : statusline Claude Code',
@@ -118,69 +119,178 @@ describe('usageTooltip', () => {
   });
 });
 
-// La forme réellement observée dans ~/.vibe-island/cache/usage-persist.json :
-// les mêmes champs, mais à la racine plutôt que sous `rate_limits`.
-const ISLAND = {
-  provider: 'anthropic',
-  windows: [{ kind: 'five_hour', utilization: 5 }],
-  five_hour: { used_percentage: 5, resets_at: 1786738200 },
-  seven_day: { used_percentage: 3, resets_at: 1787317200 },
+// La forme réellement rendue par le point d'usage d'Anthropic, telle qu'on la
+// trouve mise en cache sur le disque : `utilization` plutôt que
+// `used_percentage`, et une date ISO plutôt que des secondes Unix.
+const API = {
+  five_hour: { utilization: 13, resets_at: '2026-08-14T20:10:00.000725+00:00', limit_dollars: null },
+  seven_day: { utilization: 3, resets_at: '2026-08-21T13:00:00.000747+00:00' },
+  seven_day_opus: null,
 };
 
-describe('parseUsage — les deux emboîtements', () => {
-  it('lit aussi les fenêtres posées à la racine, comme le cache de Vibe Island', () => {
-    expect(parseUsage(ISLAND)).toEqual({
-      fiveHour: { percent: 5, resetsAt: 1786738200 },
-      sevenDay: { percent: 3, resetsAt: 1787317200 },
+describe('parseUsage — les deux vocabulaires', () => {
+  it('lit `utilization` comme `used_percentage`, et une date ISO comme des secondes', () => {
+    expect(parseUsage(API)).toEqual({
+      fiveHour: { percent: 13, resetsAt: Math.floor(Date.parse('2026-08-14T20:10:00.000725+00:00') / 1000) },
+      sevenDay: { percent: 3, resetsAt: Math.floor(Date.parse('2026-08-21T13:00:00.000747+00:00') / 1000) },
+    });
+  });
+
+  it('ramène l échéance à des SECONDES, jamais des millisecondes', () => {
+    // Une date ISO lue en millisecondes ferait un `resetsAt` mille fois trop
+    // grand, et l infobulle annoncerait une réinitialisation dans 500 000 heures.
+    const u = parseUsage(API)!;
+    expect(u.fiveHour!.resetsAt).toBeLessThan(2_000_000_000);
+  });
+
+  it('ignore une date ISO illisible sans perdre le pourcentage', () => {
+    expect(parseUsage({ five_hour: { utilization: 7, resets_at: 'pas une date' } })?.fiveHour).toEqual({
+      percent: 7,
+      resetsAt: undefined,
     });
   });
 });
 
 describe('readUsage', () => {
-  const bothIn = async (): Promise<{ home: string; island: string }> => {
-    const home = await mkdtemp(join(tmpdir(), 'koh-usage-'));
-    return { home, island: join(home, 'island.json') };
-  };
+  const home = async (): Promise<string> => mkdtemp(join(tmpdir(), 'koh-usage-'));
 
-  it('lit le fichier déposé par le pont', async () => {
-    const { home, island } = await bothIn();
-    await writeFile(join(home, 'status.json'), JSON.stringify(REAL), 'utf8');
-    const r = await readUsage(home, { KOH_VIBE_ISLAND_USAGE: island });
+  it('lit le relevé mis en cache par l appel à l API', async () => {
+    const h = await home();
+    await writeFile(join(h, 'usage.json'), JSON.stringify(API), 'utf8');
+    const r = await readUsage(h);
+    expect(r?.usage.fiveHour?.percent).toBe(13);
+    expect(r?.source).toBe('api');
+  });
+
+  it('lit aussi ce que le pont de statusline a capté', async () => {
+    const h = await home();
+    await writeFile(join(h, 'status.json'), JSON.stringify(REAL), 'utf8');
+    const r = await readUsage(h);
     expect(r?.usage.fiveHour?.percent).toBe(78);
     expect(r?.source).toBe('statusline');
   });
 
-  it('se rabat sur le cache de Vibe Island quand notre pont n a rien capté', async () => {
-    const { home, island } = await bothIn();
-    await writeFile(island, JSON.stringify(ISLAND), 'utf8');
-    const r = await readUsage(home, { KOH_VIBE_ISLAND_USAGE: island });
-    expect(r?.usage.fiveHour?.percent).toBe(5);
-    expect(r?.source).toBe('vibe-island');
-  });
-
   it('garde la plus FRAÎCHE des deux, jamais une priorité fixe', async () => {
-    const { home, island } = await bothIn();
-    // Notre instantané d abord, celui de l île ensuite : c est lui qui gagne.
-    await writeFile(join(home, 'status.json'), JSON.stringify(REAL), 'utf8');
+    const h = await home();
+    await writeFile(join(h, 'usage.json'), JSON.stringify(API), 'utf8');
     await new Promise((r) => setTimeout(r, 20));
-    await writeFile(island, JSON.stringify(ISLAND), 'utf8');
-    expect((await readUsage(home, { KOH_VIBE_ISLAND_USAGE: island }))?.source).toBe('vibe-island');
+    await writeFile(join(h, 'status.json'), JSON.stringify(REAL), 'utf8');
+    expect((await readUsage(h))?.source).toBe('statusline');
 
-    // Puis l inverse, sur les mêmes fichiers : la préférence suit la date.
     await new Promise((r) => setTimeout(r, 20));
-    await writeFile(join(home, 'status.json'), JSON.stringify(REAL), 'utf8');
-    expect((await readUsage(home, { KOH_VIBE_ISLAND_USAGE: island }))?.source).toBe('statusline');
+    await writeFile(join(h, 'usage.json'), JSON.stringify(API), 'utf8');
+    expect((await readUsage(h))?.source).toBe('api');
   });
 
   it('traite l absence et l illisible comme « pas de mesure », jamais comme une erreur', async () => {
-    const { home, island } = await bothIn();
-    expect(await readUsage(home, { KOH_VIBE_ISLAND_USAGE: island })).toBeUndefined();
-    await writeFile(join(home, 'status.json'), 'pas du JSON', 'utf8');
-    expect(await readUsage(home, { KOH_VIBE_ISLAND_USAGE: island })).toBeUndefined();
+    const h = await home();
+    expect(await readUsage(h)).toBeUndefined();
+    await writeFile(join(h, 'status.json'), 'pas du JSON', 'utf8');
+    expect(await readUsage(h)).toBeUndefined();
+  });
+});
+
+describe('accessTokenOf', () => {
+  it('extrait le jeton du JSON du trousseau', () => {
+    expect(accessTokenOf(JSON.stringify({ claudeAiOauth: { accessToken: 'abc' } }))).toBe('abc');
   });
 
-  it('ne va jamais chercher le vrai cache de la machine quand le test le redirige', async () => {
-    const { home } = await bothIn();
-    expect(await readUsage(home, { KOH_VIBE_ISLAND_USAGE: join(home, 'inexistant.json') })).toBeUndefined();
+  it('rend undefined sur tout ce qui n est pas la forme attendue', () => {
+    expect(accessTokenOf('pas du JSON')).toBeUndefined();
+    expect(accessTokenOf('{}')).toBeUndefined();
+    expect(accessTokenOf(JSON.stringify({ claudeAiOauth: {} }))).toBeUndefined();
+    expect(accessTokenOf(JSON.stringify({ claudeAiOauth: { accessToken: '' } }))).toBeUndefined();
+    expect(accessTokenOf(JSON.stringify({ claudeAiOauth: { accessToken: 42 } }))).toBeUndefined();
+    expect(accessTokenOf('[]')).toBeUndefined();
+  });
+});
+
+
+describe('refreshFromApi — le rythme', () => {
+  const deps = (opts: { token?: string; payload?: unknown; now?: () => number } = {}) => {
+    const calls = { token: 0, fetch: 0 };
+    return {
+      calls,
+      deps: {
+        readToken: async () => {
+          calls.token += 1;
+          return opts.token;
+        },
+        fetch: async () => {
+          calls.fetch += 1;
+          return opts.payload;
+        },
+        now: opts.now ?? (() => Date.now()),
+      },
+    };
+  };
+
+  beforeEach(() => forgetAttempts());
+
+  it('interroge l API et met le relevé en cache', async () => {
+    const h = await mkdtemp(join(tmpdir(), 'koh-usage-'));
+    const { deps: d, calls } = deps({ token: 'jeton', payload: API });
+    const r = await refreshFromApi(h, false, d);
+    expect(calls.fetch).toBe(1);
+    expect(r?.usage.fiveHour?.percent).toBe(13);
+    // Et le relevé est relisible par une autre fenêtre.
+    expect((await readUsage(h))?.source).toBe('api');
+  });
+
+  it('ne rappelle pas l API tant que le délai n est pas écoulé', async () => {
+    const h = await mkdtemp(join(tmpdir(), 'koh-usage-'));
+    const { deps: d, calls } = deps({ token: 'jeton', payload: API });
+    await refreshFromApi(h, false, d);
+    await refreshFromApi(h, false, d);
+    await refreshFromApi(h, false, d);
+    expect(calls.fetch).toBe(1);
+  });
+
+  it('ne se relance pas en boucle quand l accès au trousseau échoue', async () => {
+    // Le défaut que ce test garde : un échec n écrit aucun fichier, donc rien
+    // qui date. En comptant les succès, le rendu — qui tourne toutes les deux
+    // secondes — relancerait `security` et une requête HTTPS à chaque tour.
+    const h = await mkdtemp(join(tmpdir(), 'koh-usage-'));
+    const { deps: d, calls } = deps({ token: undefined });
+    for (let i = 0; i < 5; i++) await refreshFromApi(h, false, d);
+    expect(calls.token).toBe(1);
+    expect(calls.fetch).toBe(0);
+  });
+
+  it('ne se relance pas en boucle quand l API répond n importe quoi', async () => {
+    const h = await mkdtemp(join(tmpdir(), 'koh-usage-'));
+    const { deps: d, calls } = deps({ token: 'jeton', payload: { erreur: 'nope' } });
+    for (let i = 0; i < 5; i++) await refreshFromApi(h, false, d);
+    expect(calls.fetch).toBe(1);
+  });
+
+  it('rappelle l API une fois le délai écoulé', async () => {
+    const h = await mkdtemp(join(tmpdir(), 'koh-usage-'));
+    // Horloge ancrée sur l heure réelle : le second garde compare `now` à la
+    // date d écriture du fichier, qui vient du système de fichiers. Une horloge
+    // fictive partant de 1970 rendrait ce cache éternellement « frais ».
+    let clock = Date.now();
+    const { deps: d, calls } = deps({ token: 'jeton', payload: API, now: () => clock });
+    await refreshFromApi(h, false, d);
+    clock += REFRESH_AFTER_MS + 1_000;
+    await refreshFromApi(h, false, d);
+    expect(calls.fetch).toBe(2);
+  });
+
+  it('force le rafraîchissement à la demande, sans attendre l échéance', async () => {
+    const h = await mkdtemp(join(tmpdir(), 'koh-usage-'));
+    const { deps: d, calls } = deps({ token: 'jeton', payload: API });
+    await refreshFromApi(h, false, d);
+    await refreshFromApi(h, true, d);
+    expect(calls.fetch).toBe(2);
+  });
+
+  it('garde la mesure précédente quand la nouvelle tentative échoue', async () => {
+    const h = await mkdtemp(join(tmpdir(), 'koh-usage-'));
+    let clock = Date.now();
+    await refreshFromApi(h, false, deps({ token: 'jeton', payload: API, now: () => clock }).deps);
+    clock += REFRESH_AFTER_MS + 1_000;
+    const r = await refreshFromApi(h, false, deps({ token: undefined, now: () => clock }).deps);
+    expect(r?.usage.fiveHour?.percent).toBe(13);
   });
 });

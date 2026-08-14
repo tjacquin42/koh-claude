@@ -38,8 +38,8 @@ function resetText(w: UsageWindow | undefined, now: number): string | undefined 
 }
 
 const SOURCE_FR: Record<UsageReading['source'], string> = {
+  api: 'Anthropic',
   statusline: 'statusline Claude Code',
-  'vibe-island': 'Vibe Island',
 };
 
 export function usageTooltip(r: UsageReading | undefined, now: number): string {

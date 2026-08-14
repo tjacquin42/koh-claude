@@ -28,16 +28,28 @@ function isRecord(v: unknown): v is Record<string, unknown> {
  * la fenêtre est ignorée plutôt qu'affichée : mieux vaut ne rien montrer qu'une
  * jauge à -3 % ou à 4000 %, qui ferait douter de tout le reste.
  */
+/**
+ * L'échéance arrive sous deux formes selon la source : un entier de secondes
+ * Unix (statusline) ou une date ISO 8601 (API). Les deux sont ramenées à des
+ * SECONDES, jamais à des millisecondes — c'est l'unité que porte `UsageWindow`,
+ * et les confondre placerait la réinitialisation en 1970.
+ */
+function resetsAtOf(v: unknown): number | undefined {
+  if (typeof v === 'number') return Number.isFinite(v) && v > 0 ? v : undefined;
+  if (typeof v !== 'string' || v.length === 0) return undefined;
+  const ms = Date.parse(v);
+  return Number.isFinite(ms) && ms > 0 ? Math.floor(ms / 1000) : undefined;
+}
+
 function windowOf(v: unknown): UsageWindow | undefined {
   if (!isRecord(v)) return undefined;
-  const percent = v['used_percentage'];
-  if (typeof percent !== 'number' || !Number.isFinite(percent) || percent < 0 || percent > 100) {
-    return undefined;
-  }
-  const resets = v['resets_at'];
+  // `used_percentage` (statusline) et `utilization` (API) désignent la même
+  // chose sous deux noms. Un seul lecteur pour les deux, plutôt que deux
+  // lecteurs qui divergeraient.
+  const raw = v['used_percentage'] ?? v['utilization'];
+  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0 || raw > 100) return undefined;
   // Une échéance absente n'invalide pas le pourcentage : on affiche ce qu'on a.
-  const resetsAt = typeof resets === 'number' && Number.isFinite(resets) && resets > 0 ? resets : undefined;
-  return { percent, resetsAt };
+  return { percent: raw, resetsAt: resetsAtOf(v['resets_at']) };
 }
 
 /**

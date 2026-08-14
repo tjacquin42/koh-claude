@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import * as vscode from 'vscode';
 import { groupsFile, kohVibeHome, legacyHome, spoolDirs } from './paths';
 import { migrateLegacyHome } from './store/migrate';
-import { readUsage } from './usage/reader';
+import { readUsage, refreshFromApi } from './usage/reader';
 import { shouldChime, statusesOf } from './sound/model';
 import { availableSounds, NO_SOUND, playSound } from './sound/player';
 import { ensureDirs, readSessions } from './spool/persist';
@@ -129,6 +129,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // et le pont le réécrit à chaque message de Claude Code. Le mettre en
         // cache ferait afficher un pourcentage périmé — le défaut qu'on a déjà
         // payé trois fois dans ce projet.
+        // Interroge l'API au plus toutes les REFRESH_AFTER_MS, quel que soit le
+        // nombre de fenêtres : le relevé est mis en cache dans un fichier
+        // partagé, et ce rendu-ci ne fait que lire le plus frais des deux.
+        void refreshFromApi(home, false);
         tree.setUsage(await readUsage(home));
         tree.setSound(currentSound());
         const map = await withTokens(await readSessions(dirs), transcripts, () => {
@@ -262,11 +266,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await render();
     }),
     vscode.commands.registerCommand('kohVibe.refreshUsage', async () => {
+      // `force` : sans lui ce bouton attendrait l'échéance comme un rendu
+      // ordinaire, et ne rafraîchirait rien.
+      const reading = await refreshFromApi(home, true);
       await render();
-      const reading = await readUsage(home);
       if (reading === undefined) {
         void vscode.window.showInformationMessage(
-          'Koh-Vibe : aucune mesure de consommation disponible pour le moment.',
+          'Koh-Vibe : consommation indisponible — Anthropic injoignable, ou accès au trousseau refusé.',
         );
       }
     }),
