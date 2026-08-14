@@ -2,10 +2,10 @@
 # Capture de vrais payloads de hooks sans toucher à la configuration globale.
 # Tout se passe dans un dossier jetable avec son propre .claude/settings.json.
 set -euo pipefail
-BRIDGE="$PWD/bin/koh-claude-bridge"
+BRIDGE="$PWD/bin/koh-vibe-bridge"
 WORK="$(mktemp -d)"
-export KOH_CLAUDE_HOME="$WORK/spool"
-mkdir -p "$WORK/.claude" "$KOH_CLAUDE_HOME/events"
+export KOH_VIBE_HOME="$WORK/spool"
+mkdir -p "$WORK/.claude" "$KOH_VIBE_HOME/events"
 echo "Bac à sable : $WORK"
 
 python3 - "$WORK/.claude/settings.json" "$BRIDGE" <<'PYEOF'
@@ -27,7 +27,7 @@ claude -p "Lis le fichier NOTES.md et réponds uniquement par son premier mot."
 
 echo
 echo "Payloads capturés :"
-ls -1 "$KOH_CLAUDE_HOME/events/"
+ls -1 "$KOH_VIBE_HOME/events/"
 
 echo
 echo "PermissionRequest et Notification n'apparaîtront pas : ils exigent une vraie"

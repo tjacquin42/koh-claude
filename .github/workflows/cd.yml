@@ -99,6 +99,12 @@ jobs:
           # « patch » si la ligne manque, et n'échoue que si elle est illisible.
           scripts/bump-version.sh "" "${{ steps.pr.outputs.numero }}"
 
+      # `main` est protégée : aucun push direct n'y est admis, et le jeton de ce
+      # job n'a pas de dérogation — GitHub réserve celle-ci aux dépôts d'une
+      # organisation. Un refus de push n'est donc pas une panne, c'est la règle
+      # qui s'applique. Le tag et la Release, eux, sont déjà posés et portent le
+      # même texte : la version est livrée quoi qu'il arrive ici, et le
+      # mainteneur n'a plus qu'à reporter l'entrée par une PR.
       - name: Publier l'entrée de CHANGELOG
         if: steps.pr.outputs.numero != ''
         run: |
@@ -109,4 +115,18 @@ jobs:
           fi
           git add CHANGELOG.md
           git commit -m "chore(version): entrée de CHANGELOG pour la PR #${{ steps.pr.outputs.numero }}"
-          git push
+          if git push; then
+            echo "Entrée de CHANGELOG poussée sur main." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "::warning::main est protégée : l'entrée de CHANGELOG n'a pas pu être poussée. Le tag et la Release la portent déjà ; reporte-la par une PR."
+          {
+            echo "### Entrée de CHANGELOG à reporter"
+            echo
+            echo "Le tag et la Release sont posés. Seul le fichier n'a pas pu être mis à jour :"
+            echo "\`main\` refuse les push directs, et le jeton d'Actions n'a pas de dérogation."
+            echo
+            echo '```diff'
+            git show --format= --no-color HEAD -- CHANGELOG.md
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -25,7 +25,7 @@ export async function acknowledgeVisibleSessions(dirs: SpoolDirs, folders: reado
  * Acquitte une session au clic (spec §5 : « clic sur la session »),
  * inconditionnellement — indépendamment de `claims()`, qui ne gouverne que
  * l'acquittement passif de `acknowledgeVisibleSessions` ci-dessus. Extraite
- * pour la même raison : le clic (kohClaude.focusSession) est le second
+ * pour la même raison : le clic (kohVibe.focusSession) est le second
  * endroit où I6 a été perdu, et n'était protégé par aucun test avant cette
  * extraction. Un `Ack` sur une session inconnue ou déjà purgée ne la recrée
  * pas (I2, `reduce()` ignore un `Ack` sans session préalable) : aucune

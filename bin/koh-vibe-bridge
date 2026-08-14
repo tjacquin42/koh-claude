@@ -1,12 +1,12 @@
 #!/bin/zsh -f
-# koh-claude-bridge — dépose le payload d'un hook Claude Code dans le spool.
+# koh-vibe-bridge — dépose le payload d'un hook Claude Code dans le spool.
 # Ne parse rien. N'écrit jamais sur stdout. Sort toujours en 0.
 # -f empêche les fichiers de démarrage de l'utilisateur de polluer le protocole des hooks.
 emulate -L zsh
 zmodload zsh/datetime 2>/dev/null || true
 
 EVENT="${1:-unknown}"
-DIR="${KOH_CLAUDE_HOME:-$HOME/.koh-claude}/events"
+DIR="${KOH_VIBE_HOME:-$HOME/.koh-vibe}/events"
 [[ -d "$DIR" ]] || exit 0
 
 # Déplacer un `2>/dev/null` sur chaque redirection ne suffit pas : zsh peut

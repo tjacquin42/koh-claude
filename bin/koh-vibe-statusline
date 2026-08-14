@@ -1,0 +1,39 @@
+#!/bin/zsh -f
+# koh-vibe-statusline — capte l'instantané de la statusline Claude Code, puis
+# délègue à la commande qui occupait la place avant nous.
+#
+# Claude Code n'offre qu'UN emplacement de statusline. La prendre sans rendre la
+# main casserait l'outil qui s'y trouvait (Vibe Island, par exemple, qui y lit
+# ses limites d'usage). Le premier argument porte donc la commande précédente,
+# encodée en base64 — encodée parce qu'elle contient des guillemets et des
+# apostrophes qu'aucun niveau de citation ne traverse proprement.
+#
+# Comme le pont des hooks : ne parse rien, n'écrit jamais sur stdout de son
+# propre chef, sort toujours en 0. Ce qui passe sur stdout est la sortie du
+# délégué, et elle seule — c'est elle que Claude Code affiche.
+emulate -L zsh
+
+# Couvre aussi l'échec d'une redirection, que zsh signale sur son propre stderr
+# avant même d'exécuter la commande protégée. Invariant du pont : ne jamais
+# perturber la session qui l'appelle.
+exec 2>/dev/null
+
+DIR="${KOH_VIBE_HOME:-$HOME/.koh-vibe}"
+INPUT="$(/bin/cat)"
+
+# L'instantané complet, tel quel : l'extension le lit et le valide, le pont ne
+# l'interprète pas. Écriture atomique — une fenêtre peut lire pendant qu'on écrit.
+if [[ -d "$DIR" && -n "$INPUT" ]]; then
+  TMP="$DIR/.tmp-status-$$"
+  printf '%s' "$INPUT" > "$TMP" && /bin/mv -f "$TMP" "$DIR/status.json"
+fi
+
+PREV="${1:-}"
+if [[ -n "$PREV" ]]; then
+  CMD="$(printf '%s' "$PREV" | /usr/bin/base64 -d)"
+  # La MÊME entrée est repassée au délégué : il attend le JSON de Claude Code,
+  # pas un flux vide.
+  [[ -n "$CMD" ]] && printf '%s' "$INPUT" | /bin/sh -c "$CMD"
+fi
+
+exit 0

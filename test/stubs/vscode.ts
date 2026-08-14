@@ -36,6 +36,29 @@ export enum TreeItemCollapsibleState {
   Expanded = 2,
 }
 
+/**
+ * Assez fidèle pour ce que la vue en fait : `Uri.from` conserve les champs et
+ * `toString` les recompose. Le bouchon ne cherche pas à reproduire l'encodage
+ * complet de VSCode — les tests portent sur ce que l'arbre POSE, et la lecture
+ * de l'URI est éprouvée à part, sur une fonction pure (ui/decorations.ts).
+ */
+export class Uri {
+  private constructor(
+    public readonly scheme: string,
+    public readonly authority: string,
+    public readonly path: string,
+    public readonly query: string,
+  ) {}
+
+  static from(parts: { scheme: string; authority?: string; path?: string; query?: string }): Uri {
+    return new Uri(parts.scheme, parts.authority ?? '', parts.path ?? '', parts.query ?? '');
+  }
+
+  toString(): string {
+    return `${this.scheme}://${this.authority}${this.path}?${this.query}`;
+  }
+}
+
 export class ThemeColor {
   constructor(public readonly id: string) {}
 }
@@ -67,6 +90,23 @@ export class TreeItem {
   ) {}
 }
 
+/**
+ * Translation, stubbed to the identity.
+ *
+ * `vscode.l10n.t` returns the source string whenever the running editor has no
+ * bundle for its language — which is exactly what happens in English, the
+ * language the sources are written in. Tests therefore assert the English
+ * strings, and they assert them through the same call the extension makes.
+ */
+export const l10n = {
+  t(message: string, ...args: Array<string | number>): string {
+    return message.replace(/\{(\d+)\}/g, (whole, index: string) => {
+      const value = args[Number(index)];
+      return value === undefined ? whole : String(value);
+    });
+  },
+};
+
 export const window = {
   showInformationMessage: async (..._args: unknown[]): Promise<string | undefined> => undefined,
   showWarningMessage: async (..._args: unknown[]): Promise<string | undefined> => undefined,
@@ -86,3 +126,23 @@ export const commands = {
   executeCommand: async (..._args: unknown[]): Promise<unknown> => undefined,
   registerCommand: (..._args: unknown[]): { dispose: () => void } => ({ dispose: () => undefined }),
 };
+
+// Couvre exactement ce dont SessionsTree.handleDrag/handleDrop ont besoin :
+// poser une valeur sous un type MIME, la relire sous ce même type. `value`
+// est typé `unknown` (la vraie API le déclare `any`) pour que le code qui le
+// lit soit obligé de le valider avant usage, jamais de le caster.
+export class DataTransferItem {
+  constructor(public readonly value: unknown) {}
+}
+
+export class DataTransfer {
+  private readonly items = new Map<string, DataTransferItem>();
+
+  get(mimeType: string): DataTransferItem | undefined {
+    return this.items.get(mimeType);
+  }
+
+  set(mimeType: string, item: DataTransferItem): void {
+    this.items.set(mimeType, item);
+  }
+}

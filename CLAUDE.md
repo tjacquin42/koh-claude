@@ -1,4 +1,4 @@
-# Koh-Claude
+# Koh-Vibe
 
 Extension VSCode pour un tableau de bord des sessions Claude Code.
 
@@ -38,3 +38,29 @@ seule source, sinon les quatre artefacts divergent.
 La version courante se lit avec `gh release list` ou en tête de `CHANGELOG.md`.
 Les `package.json` ne portent **pas** la version : ils restent à leur valeur d'origine et
 ne font pas foi.
+
+## Langue
+
+Trois régimes, à ne pas mélanger.
+
+**Le code est en anglais.** Tout ce qu'un contributeur extérieur lit pour comprendre le
+dépôt : noms de symboles, commentaires, messages de commit, titres et corps de PR, messages
+de merge, noms de branches, libellés d'issues. Le dépôt est public — un contributeur qui ne
+parle pas français doit pouvoir s'y retrouver seul.
+
+**Les fichiers d'information sont bilingues.** `README.md` et `CONTRIBUTING.md` existent en
+anglais (fichier principal) et en français (suffixe `.fr.md`). L'anglais fait foi ; le
+français le suit. Les deux versions se modifient dans le même commit — une traduction en
+retard est pire qu'absente, parce qu'elle affirme quelque chose de faux.
+
+`CHANGELOG.md` échappe à la règle : il est engendré par `bump-version.sh` à partir des titres
+de PR, qui sont en anglais. Le traduire supposerait de traduire des titres déjà livrés.
+
+**Le texte affiché suit l'utilisateur.** Aucune chaîne visible n'est écrite en dur dans une
+langue : les libellés contribués passent par `package.nls.json`, ceux du code par
+`vscode.l10n.t()`. L'anglais est la valeur par défaut — donc la chaîne écrite dans le source —
+et `l10n/bundle.l10n.fr.json` porte le français. Une langue sans traduction retombe sur
+l'anglais, jamais sur une chaîne vide.
+
+Exception assumée : **ce fichier**. `CLAUDE.md` s'adresse à l'outillage du projet et à son
+mainteneur, pas à ses contributeurs. Il reste en français et n'a pas de jumeau anglais.

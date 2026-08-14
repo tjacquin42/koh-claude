@@ -1,67 +1,103 @@
 import { basename } from 'node:path';
+import * as vscode from 'vscode';
 import type { Session, Status } from '../events/types';
 
-const STATUS_FR: Record<Status, string> = {
-  running: 'en cours',
-  waiting: "t'attend",
-  done_unseen: 'terminé',
-  idle: "à l'arrêt",
-  stale: 'périmée',
+/**
+ * Every string a user reads goes through `vscode.l10n.t`.
+ *
+ * The literal written here IS the English version — `t` returns its argument
+ * when the editor's language has no bundle. Translations live in
+ * `l10n/bundle.l10n.<lang>.json`, so a missing one degrades to English rather
+ * than to an empty label.
+ */
+const STATUS: Record<Status, () => string> = {
+  running: () => vscode.l10n.t('running'),
+  waiting: () => vscode.l10n.t('waiting for you'),
+  done_unseen: () => vscode.l10n.t('done'),
+  idle: () => vscode.l10n.t('idle'),
+  stale: () => vscode.l10n.t('stale'),
 };
 
 export function statusLabel(status: Status): string {
-  return STATUS_FR[status];
+  return STATUS[status]();
 }
 
 export function formatAge(ms: number): string {
-  // Troncature et non arrondi : un âge écoulé se lit vers le bas. Avec un arrondi,
-  // 90 s afficherait « 2 min », et 59,9 s afficherait « 60 s » au lieu de « 1 min ».
+  // Truncated, not rounded: elapsed time reads downwards. Rounding would show
+  // 90 s as "2 min", and 59.9 s as "60 s" instead of "1 min".
   const seconds = Math.max(0, Math.floor(ms / 1000));
-  if (seconds < 60) return `${seconds} s`;
+  if (seconds < 60) return vscode.l10n.t('{0} s', seconds);
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes} min`;
-  return `${Math.floor(minutes / 60)} h`;
+  if (minutes < 60) return vscode.l10n.t('{0} min', minutes);
+  return vscode.l10n.t('{0} h', Math.floor(minutes / 60));
+}
+
+/**
+ * The age as the LIST shows it: stable through the first minute, then to the
+ * minute.
+ *
+ * `formatAge` counts seconds, which is accurate but makes the label different
+ * on every render pass. The view uses it to decide whether anything needs
+ * redrawing: text that moves every two seconds rebuilds the tree constantly and
+ * snatches the tooltip out from under the pointer. The tooltip itself keeps the
+ * precision — that is what it is opened for.
+ */
+export function formatAgeCoarse(ms: number): string {
+  return ms < 60_000 ? vscode.l10n.t('just now') : formatAge(ms);
 }
 
 export function formatTokens(n: number): string {
   if (n < 1_000) return String(n);
-  // Bascule à 999 500 et non à 1 000 000 : au-delà, l'arrondi au millier rendrait
-  // « 1000k », qui casse le format compact au lieu de passer aux millions.
+  // Switches at 999,500 rather than 1,000,000: past that, rounding to thousands
+  // would render "1000k", breaking the compact format instead of moving up.
   if (n < 999_500) return `${Math.round(n / 1_000)}k`;
   return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
-/** La branche identifie mieux une session que le projet, déjà porté par le groupe. */
+/**
+ * The title completes the line, it does not replace it: without one (the first
+ * seconds of a session, before Claude sets it), falling back to project · branch
+ * is the only thing left saying where the session works.
+ */
 export function sessionLabel(s: Session): string {
-  return s.branch ?? s.project;
+  if (s.title !== undefined) return s.title;
+  return s.branch === undefined ? s.project : `${s.project} · ${s.branch}`;
 }
 
-// Les blancs (dont les retours à la ligne d'une commande Bash multi-ligne)
-// sont normalisés à la frontière (events/parse.ts, targetOf), pas ici : la
-// valeur qui arrive dans `currentAction.target` est déjà propre, au même
-// titre que `pendingPermission.summary`, qui partage la même source. Un
-// second endroit qui répéterait cette normalisation serait le prochain piège
-// (celui qu'on oublie de maintenir en même temps que l'autre).
+// Whitespace — including the newlines of a multi-line Bash command — is
+// normalised at the boundary (events/parse.ts, targetOf), not here: what
+// reaches `currentAction.target` is already clean, as is
+// `pendingPermission.summary`, which shares the same source. A second place
+// repeating that normalisation would be the next trap: the one nobody
+// remembers to keep in step with the first.
 export function sessionDescription(s: Session, now: number): string {
   if (s.pendingPermission !== undefined) {
-    return `permission : ${s.pendingPermission.summary || s.pendingPermission.tool}`;
+    return vscode.l10n.t('permission: {0}', s.pendingPermission.summary || s.pendingPermission.tool);
   }
   if (s.currentAction !== undefined) {
     const target = s.currentAction.target;
     return target === undefined ? s.currentAction.tool : `${s.currentAction.tool} ${basename(target)}`;
   }
-  return `${statusLabel(s.status)} · ${formatAge(now - s.lastEventAt)}`;
+  // The status is NOT spelled out here: the dot on the line (ui/tree.ts) already
+  // carries it, by colour. The word does not disappear for all that — it stays
+  // in the tooltip and in the accessibility label, the two places where an icon
+  // is not enough.
+  const where = s.branch === undefined ? s.project : `${s.project} · ${s.branch}`;
+  const age = formatAgeCoarse(now - s.lastEventAt);
+  return s.title === undefined ? age : `${where} · ${age}`;
 }
 
 export function sessionTooltip(s: Session, now: number): string {
   const lines = [
     `${s.project}${s.branch === undefined ? '' : ` / ${s.branch}`}`,
     `${statusLabel(s.status)} · ${formatAge(now - s.lastEventAt)}`,
-    `origine : ${s.origin}`,
-    `${s.toolCount} outil${s.toolCount > 1 ? 's' : ''}`,
+    vscode.l10n.t('origin: {0}', s.origin),
+    // Two strings rather than one with a suffix: no European language builds a
+    // plural by appending a letter, and several do not build one at all.
+    s.toolCount > 1 ? vscode.l10n.t('{0} tools', s.toolCount) : vscode.l10n.t('{0} tool', s.toolCount),
   ];
   if (s.tokens !== undefined) {
-    lines.push(`${formatTokens(s.tokens.input)} entrée / ${formatTokens(s.tokens.output)} sortie`);
+    lines.push(vscode.l10n.t('{0} in / {1} out', formatTokens(s.tokens.input), formatTokens(s.tokens.output)));
   }
   lines.push(s.cwd);
   return lines.join('\n');

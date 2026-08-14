@@ -98,7 +98,7 @@ export async function drain(dirs: SpoolDirs, now: number, signal?: AbandonSignal
   try {
     names = await readdir(dirs.events);
   } catch {
-    // Le spool a disparu (ex : `rm -rf ~/.koh-claude` pendant que l'extension
+    // Le spool a disparu (ex : `rm -rf ~/.koh-vibe` pendant que l'extension
     // tourne) : le recréer plutôt que de rester muet jusqu'au prochain
     // rechargement de fenêtre — ensureDirs est idempotent, sûr à rappeler
     // ici. Le bridge, qui sort en silence quand `events/` n'existe pas

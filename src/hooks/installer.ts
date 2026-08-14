@@ -1,7 +1,25 @@
 import { HOOK_EVENTS } from '../events/types';
 
 /** Marqueur qui rend nos entrées reconnaissables : le nom de fichier de notre bridge. */
-export const KOH_MARKER = 'koh-claude-bridge';
+export const KOH_MARKER = 'koh-vibe-bridge';
+
+/**
+ * L'ancien nom, avant que l'extension ne devienne Koh-Vibe.
+ *
+ * Il DOIT rester reconnu : les entrées posées par une version précédente vivent
+ * encore dans le settings.json de ceux qui l'avaient installée. Ne plus les voir
+ * ne les effacerait pas — elles deviendraient des orphelines qu'aucune
+ * désinstallation ne retire, et une réinstallation poserait un second jeu de
+ * hooks à côté. Chaque événement partirait alors en double dans le spool.
+ *
+ * Reconnu à la désinstallation et au nettoyage, jamais écrit : une installation
+ * neuve ne pose que le nom courant.
+ */
+export const KOH_LEGACY_MARKER = 'koh-claude-bridge';
+
+function isMarker(path: string, marker: string): boolean {
+  return path === marker || path.endsWith(`/${marker}`);
+}
 
 interface HookCommand {
   type: 'command';
@@ -34,7 +52,7 @@ const OUR_COMMAND_RE = new RegExp(
  * Une commande est à nous seulement si elle correspond, au caractère près, au gabarit
  * que nous écrivons nous-mêmes — jamais si elle le contient ou le mentionne en passant.
  * Un test de sous-chaîne classerait comme nôtre une commande étrangère qui enrobe notre
- * bridge (`sh -c 'autre-chose && ~/.koh-claude/bin/koh-claude-bridge'`) : elle serait
+ * bridge (`sh -c 'autre-chose && ~/.koh-vibe/bin/koh-vibe-bridge'`) : elle serait
  * alors supprimée par `installHooks`/`uninstallHooks`, et invisible pour
  * `foreignFingerprint` puisqu'il partage ce même prédicat — les deux garde-fous
  * tomberaient ensemble. La reconnaissance exacte du gabarit referme les deux à la fois.
@@ -48,7 +66,8 @@ function isOurs(h: unknown): boolean {
   const match = OUR_COMMAND_RE.exec(h['command']);
   if (!match) return false;
   const bridgePath = match[1];
-  return bridgePath !== undefined && (bridgePath === KOH_MARKER || bridgePath.endsWith(`/${KOH_MARKER}`));
+  if (bridgePath === undefined) return false;
+  return isMarker(bridgePath, KOH_MARKER) || isMarker(bridgePath, KOH_LEGACY_MARKER);
 }
 
 /**
@@ -206,4 +225,91 @@ export function foreignFingerprint(settings: unknown): string[] {
   }
 
   return out.sort();
+}
+
+/** Marqueur qui rend notre entrée de statusline reconnaissable, comme KOH_MARKER pour les hooks. */
+export const KOH_STATUSLINE_MARKER = 'koh-vibe-statusline';
+
+// Le gabarit exact que nous écrivons, et lui seul. Le chemin du pont est capturé
+// une fois et retrouvé par rétro-référence : les deux occurrences ne peuvent pas
+// diverger. Le second groupe est la commande précédente, encodée en base64 —
+// vide si la place était libre.
+const OUR_STATUSLINE_RE = new RegExp(
+  `^/bin/sh -c '\\[ -x "([^"]+)" \\] && exec "\\1" "([A-Za-z0-9+/=]*)"; exec /bin/sh -c "\\$\\(printf %s "\\2" \\| /usr/bin/base64 -d\\)"'$`,
+);
+
+function statusLineCommandOf(settings: unknown): string | undefined {
+  if (!isRecord(settings)) return undefined;
+  const line = settings['statusLine'];
+  if (!isRecord(line)) return undefined;
+  const command = line['command'];
+  return typeof command === 'string' ? command : undefined;
+}
+
+/**
+ * Ce que notre entrée de statusline enveloppe : la commande qui occupait la
+ * place avant nous, ou `undefined` si l'entrée n'est pas la nôtre.
+ *
+ * Reconnaissance par gabarit exact, jamais par sous-chaîne — même raison que
+ * `isOurs` : une commande étrangère qui MENTIONNERAIT notre pont serait sinon
+ * classée comme nôtre, puis supprimée à la désinstallation.
+ */
+export function wrappedStatusLine(settings: unknown): string | undefined {
+  const command = statusLineCommandOf(settings);
+  if (command === undefined) return undefined;
+  const match = OUR_STATUSLINE_RE.exec(command);
+  if (!match) return undefined;
+  const bridge = match[1];
+  if (bridge === undefined || !(bridge === KOH_STATUSLINE_MARKER || bridge.endsWith(`/${KOH_STATUSLINE_MARKER}`))) {
+    return undefined;
+  }
+  const encoded = match[2] ?? '';
+  return encoded.length === 0 ? '' : Buffer.from(encoded, 'base64').toString('utf8');
+}
+
+/**
+ * Installe notre pont de statusline en DÉLÉGUANT à ce qui s'y trouvait.
+ *
+ * Claude Code n'offre qu'un seul emplacement de statusline. Le prendre sans
+ * rendre la main couperait l'outil qui l'occupait — Vibe Island y lit ses
+ * limites d'usage, et c'est de là que vient la donnée qu'on affiche. La commande
+ * précédente est donc encodée en base64 et passée en argument : l'encodage évite
+ * tout niveau de citation supplémentaire dans une chaîne qui traverse déjà JSON
+ * puis deux shells.
+ *
+ * La seconde moitié de la commande est un repli : si notre pont a disparu (paquet
+ * désinstallé, dossier d'état effacé), la commande précédente s'exécute quand
+ * même. Perdre notre mesure est acceptable ; casser en silence la statusline de
+ * quelqu'un d'autre ne l'est pas.
+ *
+ * Réinstaller par-dessus notre propre entrée ne l'imbrique pas : la commande
+ * enveloppée est celle qu'on enveloppait déjà.
+ */
+export function installStatusLine(settings: unknown, bridgePath: string): unknown {
+  const root = isRecord(settings) ? { ...settings } : {};
+  const already = wrappedStatusLine(root);
+  const previous = already ?? statusLineCommandOf(root) ?? '';
+  const encoded = Buffer.from(previous, 'utf8').toString('base64');
+  const command =
+    `/bin/sh -c '[ -x "${bridgePath}" ] && exec "${bridgePath}" "${encoded}"; ` +
+    `exec /bin/sh -c "$(printf %s "${encoded}" | /usr/bin/base64 -d)"'`;
+  root['statusLine'] = { type: 'command', command };
+  return root;
+}
+
+/**
+ * Rend la place à qui l'occupait. Une entrée qui n'est pas la nôtre n'est pas
+ * touchée. Si nous n'enveloppions rien, la clé disparaît entièrement plutôt que
+ * de laisser une statusline vide derrière nous.
+ */
+export function uninstallStatusLine(settings: unknown): unknown {
+  const root = isRecord(settings) ? { ...settings } : {};
+  const previous = wrappedStatusLine(root);
+  if (previous === undefined) return root;
+  if (previous.length === 0) {
+    delete root['statusLine'];
+    return root;
+  }
+  root['statusLine'] = { type: 'command', command: previous };
+  return root;
 }

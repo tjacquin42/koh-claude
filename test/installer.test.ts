@@ -7,7 +7,7 @@ import {
   uninstallHooks,
 } from '../src/hooks/installer';
 
-const BRIDGE = '/Users/dev/koh-claude/bin/koh-claude-bridge';
+const BRIDGE = '/Users/dev/koh-vibe/bin/koh-vibe-bridge';
 
 const existing = {
   model: 'opus',
@@ -215,14 +215,14 @@ describe('isOurs (précision de la reconnaissance)', () => {
         PreToolUse: [
           {
             matcher: '*',
-            hooks: [{ type: 'command', command: "sh -c 'autre-chose && ~/.koh-claude/bin/koh-claude-bridge'" }],
+            hooks: [{ type: 'command', command: "sh -c 'autre-chose && ~/.koh-vibe/bin/koh-vibe-bridge'" }],
           },
         ],
       },
     };
     const out = uninstallHooks(wrapped) as typeof wrapped;
     expect(out.hooks.PreToolUse[0]?.hooks.map((h) => h.command)).toContain(
-      "sh -c 'autre-chose && ~/.koh-claude/bin/koh-claude-bridge'",
+      "sh -c 'autre-chose && ~/.koh-vibe/bin/koh-vibe-bridge'",
     );
     expect(foreignFingerprint(wrapped).length).toBeGreaterThan(0);
   });
@@ -230,5 +230,40 @@ describe('isOurs (précision de la reconnaissance)', () => {
   it('reconnaît exactement notre propre commande installée : rien d étranger après une installation à vide', () => {
     const out = installHooks({}, BRIDGE);
     expect(foreignFingerprint(out)).toEqual([]);
+  });
+});
+
+describe('migration depuis l ancien nom', () => {
+  const LEGACY = "/bin/sh -c '[ -x \"/Users/dev/.koh-claude/bin/koh-claude-bridge\" ] && \"/Users/dev/.koh-claude/bin/koh-claude-bridge\" Stop; exit 0'";
+
+  it('reconnaît une entrée posée sous l ancien nom', () => {
+    const before = { hooks: { Stop: [{ matcher: '*', hooks: [{ type: 'command', command: LEGACY }] }] } };
+    expect(countKohEntries(before)).toBe(1);
+  });
+
+  it('retire les anciennes entrées à la désinstallation, au lieu de les laisser orphelines', () => {
+    const before = { hooks: { Stop: [{ matcher: '*', hooks: [{ type: 'command', command: LEGACY }] }] } };
+    expect(countKohEntries(uninstallHooks(before))).toBe(0);
+  });
+
+  it('ne pose pas un second jeu de hooks à côté de l ancien', () => {
+    // Le vrai risque du renommage : deux ponts installés, chaque événement
+    // dupliqué dans le spool.
+    const before = { hooks: { Stop: [{ matcher: '*', hooks: [{ type: 'command', command: LEGACY }] }] } };
+    const after = installHooks(before, '/Users/dev/.koh-vibe/bin/koh-vibe-bridge');
+    const stop = (after as { hooks: { Stop: Array<{ hooks: unknown[] }> } }).hooks.Stop;
+    expect(stop.flatMap((m) => m.hooks)).toHaveLength(1);
+    expect(JSON.stringify(after)).not.toContain('koh-claude-bridge');
+  });
+
+  it('n installe jamais l ancien nom : une pose neuve ne porte que le nom courant', () => {
+    expect(JSON.stringify(installHooks({}, '/Users/dev/.koh-vibe/bin/koh-vibe-bridge'))).not.toContain('koh-claude');
+  });
+
+  it('ne confond pas un pont étranger dont le nom finit autrement', () => {
+    const foreign = "/bin/sh -c '[ -x \"/opt/autre-bridge\" ] && \"/opt/autre-bridge\" Stop; exit 0'";
+    const before = { hooks: { Stop: [{ matcher: '*', hooks: [{ type: 'command', command: foreign }] }] } };
+    expect(countKohEntries(before)).toBe(0);
+    expect(JSON.stringify(uninstallHooks(before))).toContain('/opt/autre-bridge');
   });
 });
