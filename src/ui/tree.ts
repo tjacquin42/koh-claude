@@ -23,18 +23,38 @@ const ICONS: Record<Status, { id: string; color?: string }> = {
 
 const ORDER: Record<Status, number> = { waiting: 0, running: 1, done_unseen: 2, idle: 3, stale: 4 };
 
-export class SessionsTree implements vscode.TreeDataProvider<TreeNode> {
+function isSessionNode(node: TreeNode): node is Extract<TreeNode, { kind: 'session' }> {
+  return node.kind === 'session';
+}
+
+export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.TreeDragAndDropController<TreeNode> {
+  // Type MIME qui nous est propre : c'est lui qui distingue un dépôt venu de
+  // cet arbre (dont on connaît le format du contenu) d'un dépôt venu
+  // d'ailleurs (un autre arbre, l'OS) — voir handleDrop.
+  private static readonly MIME = 'application/vnd.code.tree.kohclaude.sessions';
+  readonly dropMimeTypes = [SessionsTree.MIME];
+  readonly dragMimeTypes = [SessionsTree.MIME];
+
   private readonly emitter = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this.emitter.event;
   private sessions: Session[] = [];
   private groups: GroupsState = emptyGroups();
 
-  // Reçoit la vérification plutôt que de la posséder : lire settings.json
-  // toutes les REFRESH_MS pour un cas rare (aucune session) coûterait en
-  // permanence. Consultée seulement quand ce nœud vide s'apprête à
-  // s'afficher (I5) — jamais mise en cache au-delà d'un seul appel, pour
-  // qu'une installation faite entre-temps se voie sans recharger la fenêtre.
-  constructor(private readonly checkHooksInstalled: () => Promise<boolean>) {}
+  constructor(
+    // Reçoit la vérification plutôt que de la posséder : lire settings.json
+    // toutes les REFRESH_MS pour un cas rare (aucune session) coûterait en
+    // permanence. Consultée seulement quand ce nœud vide s'apprête à
+    // s'afficher (I5) — jamais mise en cache au-delà d'un seul appel, pour
+    // qu'une installation faite entre-temps se voie sans recharger la fenêtre.
+    private readonly checkHooksInstalled: () => Promise<boolean>,
+    // Signale une intention, comme checkHooksInstalled ci-dessus : la vue ne
+    // connaît ni le fichier de classement ni updateGroups. Le câblage fournit
+    // une fonction qui appelle updateGroups ; sans effet par défaut, pour que
+    // les tests qui ne portent pas sur le glisser-déposer restent valides
+    // sans avoir à le fournir.
+    private readonly onDrop: (sessionIds: readonly string[], groupId: string | undefined) => Promise<void> = () =>
+      Promise.resolve(),
+  ) {}
 
   setSessions(map: Map<string, Session>): void {
     const now = Date.now();
@@ -121,6 +141,30 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode> {
     );
     item.command = { command: 'kohClaude.focusSession', title: 'Aller à la session', arguments: [s] };
     return item;
+  }
+
+  // Ce que l'utilisateur saisit dans le glisser : uniquement les sessions
+  // sélectionnées, jamais un dossier — un dossier n'a pas de sens à être
+  // déposé ailleurs dans cet arbre.
+  handleDrag(source: readonly TreeNode[], data: vscode.DataTransfer): void {
+    const ids = source.filter(isSessionNode).map((node) => node.session.id);
+    if (ids.length > 0) data.set(SessionsTree.MIME, new vscode.DataTransferItem(ids));
+  }
+
+  // Le ciblage ne passe pas par contextValue : `target` est le nœud VSCode
+  // sous le curseur. Seul un nœud de dossier (nommé ou « Sans dossier ») est
+  // une cible valable — le vide de la vue (target undefined) ou toute autre
+  // ligne ne change rien. `item.value` n'est jamais casté : il transite par
+  // `unknown` et n'est accepté qu'après validation explicite de sa forme.
+  async handleDrop(target: TreeNode | undefined, data: vscode.DataTransfer): Promise<void> {
+    if (target?.kind !== 'group') return;
+    const item = data.get(SessionsTree.MIME);
+    if (item === undefined) return;
+    const ids: unknown = item.value;
+    if (!Array.isArray(ids)) return;
+    const sessionIds = ids.filter((id): id is string => typeof id === 'string');
+    if (sessionIds.length === 0) return;
+    await this.onDrop(sessionIds, target.group?.id);
   }
 
   dispose(): void {

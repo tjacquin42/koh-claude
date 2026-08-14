@@ -25,11 +25,19 @@
       { "command": "kohClaude.refresh", "title": "Koh-Claude : rafraîchir", "icon": "$(refresh)" },
       { "command": "kohClaude.focusSession", "title": "Koh-Claude : aller à la session" },
       { "command": "kohClaude.installHooks", "title": "Koh-Claude : installer les hooks" },
-      { "command": "kohClaude.uninstallHooks", "title": "Koh-Claude : désinstaller les hooks" }
+      { "command": "kohClaude.uninstallHooks", "title": "Koh-Claude : désinstaller les hooks" },
+      { "command": "kohClaude.newGroup", "title": "Koh-Claude : créer un dossier", "icon": "$(new-folder)" },
+      { "command": "kohClaude.renameGroup", "title": "Koh-Claude : renommer le dossier" },
+      { "command": "kohClaude.deleteGroup", "title": "Koh-Claude : supprimer le dossier" }
     ],
     "menus": {
       "view/title": [
-        { "command": "kohClaude.refresh", "when": "view == kohClaude.sessions", "group": "navigation" }
+        { "command": "kohClaude.refresh", "when": "view == kohClaude.sessions", "group": "navigation" },
+        { "command": "kohClaude.newGroup", "when": "view == kohClaude.sessions", "group": "navigation" }
+      ],
+      "view/item/context": [
+        { "command": "kohClaude.renameGroup", "when": "view == kohClaude.sessions && viewItem == group" },
+        { "command": "kohClaude.deleteGroup", "when": "view == kohClaude.sessions && viewItem == group" }
       ]
     }
   },

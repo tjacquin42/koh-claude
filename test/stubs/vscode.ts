@@ -86,3 +86,23 @@ export const commands = {
   executeCommand: async (..._args: unknown[]): Promise<unknown> => undefined,
   registerCommand: (..._args: unknown[]): { dispose: () => void } => ({ dispose: () => undefined }),
 };
+
+// Couvre exactement ce dont SessionsTree.handleDrag/handleDrop ont besoin :
+// poser une valeur sous un type MIME, la relire sous ce même type. `value`
+// est typé `unknown` (la vraie API le déclare `any`) pour que le code qui le
+// lit soit obligé de le valider avant usage, jamais de le caster.
+export class DataTransferItem {
+  constructor(public readonly value: unknown) {}
+}
+
+export class DataTransfer {
+  private readonly items = new Map<string, DataTransferItem>();
+
+  get(mimeType: string): DataTransferItem | undefined {
+    return this.items.get(mimeType);
+  }
+
+  set(mimeType: string, item: DataTransferItem): void {
+    this.items.set(mimeType, item);
+  }
+}
