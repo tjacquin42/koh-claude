@@ -4,8 +4,10 @@
   "description": "Tableau de bord des sessions Claude Code",
   "version": "0.1.0",
   "publisher": "tjacquin42",
-  "private": true,
-  "license": "UNLICENSED",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/tjacquin42/koh-claude.git" },
+  "bugs": { "url": "https://github.com/tjacquin42/koh-claude/issues" },
+  "homepage": "https://github.com/tjacquin42/koh-claude#readme",
   "engines": { "vscode": "^1.94.0", "node": ">=22" },
   "categories": ["Other"],
   "main": "./out/extension.js",
@@ -22,14 +24,14 @@
       ]
     },
     "commands": [
-      { "command": "kohClaude.refresh", "title": "Koh-Claude : rafraîchir", "icon": "$(refresh)" },
-      { "command": "kohClaude.focusSession", "title": "Koh-Claude : aller à la session" },
-      { "command": "kohClaude.installHooks", "title": "Koh-Claude : installer les hooks" },
-      { "command": "kohClaude.uninstallHooks", "title": "Koh-Claude : désinstaller les hooks" },
-      { "command": "kohClaude.newGroup", "title": "Koh-Claude : créer un dossier", "icon": "$(new-folder)" },
-      { "command": "kohClaude.renameGroup", "title": "Koh-Claude : renommer le dossier" },
-      { "command": "kohClaude.colorGroup", "title": "Koh-Claude : couleur du dossier" },
-      { "command": "kohClaude.deleteGroup", "title": "Koh-Claude : supprimer le dossier" }
+      { "command": "kohClaude.refresh", "title": "Rafraîchir", "category": "Koh-Claude", "icon": "$(refresh)" },
+      { "command": "kohClaude.focusSession", "title": "Aller à la session", "category": "Koh-Claude" },
+      { "command": "kohClaude.installHooks", "title": "Installer les hooks", "category": "Koh-Claude" },
+      { "command": "kohClaude.uninstallHooks", "title": "Désinstaller les hooks", "category": "Koh-Claude" },
+      { "command": "kohClaude.newGroup", "title": "Créer un dossier", "category": "Koh-Claude", "icon": "$(new-folder)" },
+      { "command": "kohClaude.renameGroup", "title": "Renommer le dossier", "category": "Koh-Claude" },
+      { "command": "kohClaude.colorGroup", "title": "Couleur du dossier", "category": "Koh-Claude" },
+      { "command": "kohClaude.deleteGroup", "title": "Supprimer le dossier", "category": "Koh-Claude" }
     ],
     "menus": {
       "view/title": [

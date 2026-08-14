@@ -3,7 +3,7 @@ import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { assign, createGroup, deleteGroup, emptyGroups, parseGroups, serializeGroups, setGroupColor } from '../src/groups/model';
+import { assign, createGroup, deleteGroup, emptyGroups, parseGroups, serializeGroups, sessionOrderOf, setGroupColor, setSessionOrder } from '../src/groups/model';
 import { readGroups, updateGroups } from '../src/groups/store';
 
 // `node:fs/promises` est un module natif, mocké entièrement en délégant à l'implémentation
@@ -104,6 +104,32 @@ describe('groups store', () => {
       return setGroupColor(s, 'g1', undefined);
     });
     expect(out.groups[0]).not.toHaveProperty('color');
+  });
+
+  it('ranger dans un dossier n efface pas l ordre qu une autre fenêtre pose dans un autre', async () => {
+    // Le défaut que ce test garde : prendre `after.sessionOrder` en bloc
+    // écrasait tous les dossiers, pas seulement celui qu on venait de ranger.
+    await updateGroups(file, (s) => createGroup(createGroup(s, 'mien', () => 'g1'), 'sien', () => 'g2'));
+    const out = await updateGroups(file, async (s) => {
+      const fresh = parseGroups(await readFile(file, 'utf8'));
+      await writeFile(file, serializeGroups(setSessionOrder(fresh, 'g2', ['x', 'y'])));
+      return setSessionOrder(s, 'g1', ['a', 'b']);
+    });
+    expect(sessionOrderOf(out, 'g1')).toEqual(['a', 'b']);
+    expect(sessionOrderOf(out, 'g2')).toEqual(['x', 'y']);
+    const reread = await readGroups(file);
+    expect(sessionOrderOf(reread, 'g2')).toEqual(['x', 'y']);
+  });
+
+  it('un ordre réordonné ici gagne sur celui, plus ancien, du fichier', async () => {
+    await updateGroups(file, (s) => setSessionOrder(createGroup(s, 'mien', () => 'g1'), 'g1', ['a', 'b', 'c']));
+    const out = await updateGroups(file, async (s) => {
+      const fresh = parseGroups(await readFile(file, 'utf8'));
+      await writeFile(file, serializeGroups(createGroup(fresh, 'ailleurs', () => 'g2')));
+      return setSessionOrder(s, 'g1', ['c', 'a', 'b']);
+    });
+    expect(sessionOrderOf(out, 'g1')).toEqual(['c', 'a', 'b']);
+    expect(out.groups.map((g) => g.name)).toEqual(['mien', 'ailleurs']);
   });
 
   it('un dossier supprimé ici reste supprimé même si l autre fenêtre l ignorait', async () => {

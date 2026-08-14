@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatAge, formatTokens, sessionDescription, sessionLabel, statusLabel } from '../src/ui/labels';
+import { formatAge, formatTokens, sessionDescription, sessionLabel, sessionTooltip, statusLabel } from '../src/ui/labels';
 import type { Session } from '../src/events/types';
 
 const s: Session = {
@@ -68,7 +68,19 @@ describe('labels', () => {
     expect(sessionDescription(waiting, 0)).toBe('permission : rm -rf dist');
   });
 
-  it('retombe sur le statut et l âge quand rien ne se passe', () => {
-    expect(sessionDescription({ ...s, status: 'idle', currentAction: undefined }, 60_000)).toBe("à l'arrêt · 1 min");
+  it('retombe sur l âge seul quand rien ne se passe — la pastille dit le statut', () => {
+    expect(sessionDescription({ ...s, status: 'idle', currentAction: undefined }, 60_000)).toBe('1 min');
+  });
+
+  it('n écrit jamais le statut en toutes lettres dans la description', () => {
+    // Le mot ferait doublon avec la pastille ; il reste dans l infobulle.
+    for (const status of ['running', 'waiting', 'done_unseen', 'idle', 'stale'] as const) {
+      const d = sessionDescription({ ...s, status, currentAction: undefined }, 0);
+      expect(d).not.toContain(statusLabel(status));
+    }
+  });
+
+  it('garde le statut en toutes lettres dans l infobulle', () => {
+    expect(sessionTooltip({ ...s, status: 'waiting' }, 0)).toContain(statusLabel('waiting'));
   });
 });

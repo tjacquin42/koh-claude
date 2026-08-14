@@ -122,7 +122,7 @@ describe('applyDrop', () => {
     await updateGroups(file, (s) => createGroup(s, 'Taf', () => 'g1'));
     writeFileCalls.count = 0;
 
-    const out = await applyDrop(file, ['s1', 's2', 's3'], 'g1');
+    const out = await applyDrop(file, ['s1', 's2', 's3'], 'g1', ['s1', 's2', 's3']);
 
     expect(out.assignments).toEqual({ s1: 'g1', s2: 'g1', s3: 'g1' });
     expect(writeFileCalls.count).toBe(1);
@@ -131,13 +131,13 @@ describe('applyDrop', () => {
   it('retire l affectation des sessions déposées sur « Sans dossier » (groupId undefined)', async () => {
     await updateGroups(file, (s) => assign(createGroup(s, 'Taf', () => 'g1'), 's1', 'g1'));
 
-    const out = await applyDrop(file, ['s1'], undefined);
+    const out = await applyDrop(file, ['s1'], undefined, ['s1']);
 
     expect(out.assignments).toEqual({});
   });
 
   it('ignore silencieusement un dossier inexistant, comme assign() (model.ts)', async () => {
-    const out = await applyDrop(file, ['s1'], 'inconnu');
+    const out = await applyDrop(file, ['s1'], 'inconnu', ['s1']);
 
     expect(out.assignments).toEqual({});
   });

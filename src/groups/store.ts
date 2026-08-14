@@ -102,6 +102,7 @@ function merge(latestRaw: string | undefined, before: GroupsState, after: Groups
     ...after,
     groups: mergeGroups(latest.groups, before.groups, after.groups),
     assignments: mergeAssignments(latest.assignments, before.assignments, after.assignments),
+    sessionOrder: mergeSessionOrder(latest.sessionOrder, before.sessionOrder, after.sessionOrder),
   };
 }
 
@@ -195,6 +196,36 @@ function mergeGroups(latest: readonly Group[], before: readonly Group[], after: 
     });
   const merged = [...kept, ...added.filter((g) => !kept.some((k) => k.id === g.id))];
   return merged.map((g, i) => ({ ...g, order: i }));
+}
+
+/**
+ * Fusionne les ordres dossier par dossier, jamais en bloc : ranger dans SON
+ * dossier ne doit pas effacer l'ordre qu'une autre fenêtre vient de poser dans
+ * un AUTRE. Prendre `after.sessionOrder` tel quel, comme le faisait la première
+ * version, écrasait tout le reste — le même défaut que la couleur perdue par
+ * mergeGroups, à un champ près.
+ *
+ * Un ordre qu'on n'a pas touché revient de `latest` (l'état le plus frais) ;
+ * celui qu'on a changé est le nôtre ; celui qu'on a vidé disparaît.
+ */
+function mergeSessionOrder(
+  latest: Readonly<Record<string, readonly string[]>>,
+  before: Readonly<Record<string, readonly string[]>>,
+  after: Readonly<Record<string, readonly string[]>>,
+): Record<string, readonly string[]> {
+  const out: Record<string, readonly string[]> = { ...latest };
+  for (const [key, ids] of Object.entries(after)) {
+    if (!sameIds(before[key], ids)) out[key] = ids;
+  }
+  for (const key of Object.keys(before)) {
+    if (after[key] === undefined) delete out[key];
+  }
+  return out;
+}
+
+function sameIds(a: readonly string[] | undefined, b: readonly string[] | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  return a.length === b.length && a.every((id, i) => id === b[i]);
 }
 
 function mergeAssignments(

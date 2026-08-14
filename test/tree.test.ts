@@ -18,6 +18,7 @@ const session = (id: string, overrides: Partial<Session> = {}): Session => ({
 const groups = (state: Partial<GroupsState>): GroupsState => ({
   groups: [],
   assignments: {},
+  sessionOrder: {},
   unknown: {},
   ...state,
 });
@@ -343,5 +344,83 @@ describe('SessionsTree — espace et couleur des dossiers', () => {
     const [node] = await tree.getChildren();
     const icon = tree.getTreeItem(node).iconPath as { id: string; color?: { id: string } };
     expect(icon.color).toBeUndefined();
+  });
+});
+
+describe('SessionsTree — ordre choisi à la main', () => {
+  const three = (): Map<string, Session> =>
+    new Map([
+      ['s1', session('s1', { project: 'un', status: 'idle', lastEventAt: 30 })],
+      ['s2', session('s2', { project: 'deux', status: 'idle', lastEventAt: 20 })],
+      ['s3', session('s3', { project: 'trois', status: 'idle', lastEventAt: 10 })],
+    ]);
+
+  const treeWith = (sessionOrder: Record<string, readonly string[]>): SessionsTree => {
+    const tree = new SessionsTree(() => Promise.resolve(true), noopOnDrop);
+    tree.setSessions(three());
+    tree.setGroups(
+      groups({
+        groups: [{ id: 'g1', name: 'Dossier', order: 0 }],
+        assignments: { s1: 'g1', s2: 'g1', s3: 'g1' },
+        sessionOrder,
+      }),
+    );
+    return tree;
+  };
+
+  it('sans ordre choisi, garde le tri du tableau de bord', async () => {
+    const [group] = await treeWith({}).getChildren();
+    expect(await labelsOf(treeWith({}), group)).toEqual(['un', 'deux', 'trois']);
+  });
+
+  it('respecte l ordre choisi, quel que soit le tri par défaut', async () => {
+    const tree = treeWith({ g1: ['s3', 's1', 's2'] });
+    const [group] = await tree.getChildren();
+    expect(await labelsOf(tree, group)).toEqual(['trois', 'un', 'deux']);
+  });
+
+  it('ne bouge pas quand un statut change — c est tout l intérêt d un ordre fixe', async () => {
+    const tree = treeWith({ g1: ['s3', 's1', 's2'] });
+    const bumped = three();
+    // s2 passe en tête du tri par défaut (elle t attend) : l ordre choisi tient.
+    bumped.set('s2', session('s2', { project: 'deux', status: 'waiting', lastEventAt: 99 }));
+    tree.setSessions(bumped);
+    const [group] = await tree.getChildren();
+    expect(await labelsOf(tree, group)).toEqual(['trois', 'un', 'deux']);
+  });
+
+  it('place à la fin une session que l ordre ne nomme pas, sans bousculer les autres', async () => {
+    const tree = treeWith({ g1: ['s3', 's1'] });
+    const [group] = await tree.getChildren();
+    expect(await labelsOf(tree, group)).toEqual(['trois', 'un', 'deux']);
+  });
+
+  it('ignore un identifiant qui ne correspond à aucune session vivante', async () => {
+    const tree = treeWith({ g1: ['fantome', 's2'] });
+    const [group] = await tree.getChildren();
+    expect(await labelsOf(tree, group)).toEqual(['deux', 'un', 'trois']);
+  });
+
+  it('ordonne aussi « Sans dossier »', async () => {
+    const tree = new SessionsTree(() => Promise.resolve(true), noopOnDrop);
+    tree.setSessions(three());
+    tree.setGroups(groups({ sessionOrder: { '': ['s3', 's2', 's1'] } }));
+    const [unfiled] = await tree.getChildren();
+    expect(await labelsOf(tree, unfiled)).toEqual(['trois', 'deux', 'un']);
+  });
+
+  it('ne mélange pas l ordre d un dossier avec celui de « Sans dossier »', async () => {
+    const tree = new SessionsTree(() => Promise.resolve(true), noopOnDrop);
+    tree.setSessions(three());
+    tree.setGroups(
+      groups({
+        groups: [{ id: 'g1', name: 'Dossier', order: 0 }],
+        assignments: { s1: 'g1' },
+        sessionOrder: { g1: ['s1'], '': ['s3', 's2'] },
+      }),
+    );
+    const [group, , unfiled] = await tree.getChildren();
+    expect(await labelsOf(tree, group)).toEqual(['un']);
+    expect(await labelsOf(tree, unfiled)).toEqual(['trois', 'deux']);
   });
 });

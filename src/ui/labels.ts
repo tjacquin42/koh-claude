@@ -55,10 +55,13 @@ export function sessionDescription(s: Session, now: number): string {
     const target = s.currentAction.target;
     return target === undefined ? s.currentAction.tool : `${s.currentAction.tool} ${basename(target)}`;
   }
+  // Le statut n'est PAS répété ici en toutes lettres : la pastille de la ligne
+  // (ui/tree.ts) le porte déjà, par sa forme et sa couleur. Le mot ne disparaît
+  // pas pour autant — il reste dans l'infobulle et dans le libellé
+  // d'accessibilité, les deux endroits où une icône ne suffit pas.
   const where = s.branch === undefined ? s.project : `${s.project} · ${s.branch}`;
-  return s.title === undefined
-    ? `${statusLabel(s.status)} · ${formatAge(now - s.lastEventAt)}`
-    : `${where} · ${statusLabel(s.status)} · ${formatAge(now - s.lastEventAt)}`;
+  const age = formatAge(now - s.lastEventAt);
+  return s.title === undefined ? age : `${where} · ${age}`;
 }
 
 export function sessionTooltip(s: Session, now: number): string {

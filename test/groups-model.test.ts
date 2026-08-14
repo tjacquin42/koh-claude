@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   assign, createGroup, deleteGroup, emptyGroups, groupIdOf, parseGroups,
-  pruneAssignments, renameGroup, serializeGroups, setGroupColor, unassign,
+  pruneAssignments, renameGroup, reorder, serializeGroups, sessionOrderOf, setGroupColor, setSessionOrder, unassign,
 } from '../src/groups/model';
 import type { GroupsState } from '../src/groups/model';
 
@@ -215,5 +215,92 @@ describe('setGroupColor', () => {
     });
     expect(parseGroups(raw).groups[0]?.color).toBe('turquoise');
     expect(JSON.parse(serializeGroups(parseGroups(raw))).groups[0].color).toBe('turquoise');
+  });
+});
+
+describe('reorder', () => {
+  it('place les déplacées devant la cible', () => {
+    expect(reorder(['a', 'b', 'c'], ['c'], 'b')).toEqual(['a', 'c', 'b']);
+  });
+
+  it('place à la fin quand il n y a pas de cible', () => {
+    expect(reorder(['a', 'b'], ['a'], undefined)).toEqual(['b', 'a']);
+  });
+
+  it('ne déplace rien quand on dépose une session sur elle-même', () => {
+    expect(reorder(['a', 'b', 'c'], ['b'], 'b')).toEqual(['a', 'b', 'c']);
+    expect(reorder(['a', 'b', 'c'], ['a'], 'a')).toEqual(['a', 'b', 'c']);
+    expect(reorder(['a', 'b', 'c'], ['c'], 'c')).toEqual(['a', 'b', 'c']);
+  });
+
+  it('descend correctement une session vers le bas de sa propre liste', () => {
+    // Le cas que le retrait préalable rendrait impossible : sans lui, « a »
+    // serait inséré avant lui-même et rien ne bougerait.
+    expect(reorder(['a', 'b', 'c'], ['a'], 'c')).toEqual(['b', 'a', 'c']);
+  });
+
+  it('accueille une session venue d un autre dossier', () => {
+    expect(reorder(['a', 'b'], ['x'], 'b')).toEqual(['a', 'x', 'b']);
+  });
+
+  it('garde les déplacées ensemble et dans leur ordre', () => {
+    expect(reorder(['a', 'b', 'c', 'd'], ['d', 'a'], 'c')).toEqual(['b', 'd', 'a', 'c']);
+  });
+
+  it('place à la fin quand la cible est inconnue, plutôt que de deviner', () => {
+    expect(reorder(['a', 'b'], ['x'], 'inexistante')).toEqual(['a', 'b', 'x']);
+  });
+});
+
+describe('sessionOrder', () => {
+  const state = (): GroupsState => parseGroups(JSON.stringify({ version: 1, groups: [], assignments: {} }));
+
+  it('sépare l ordre d un dossier de celui de « Sans dossier »', () => {
+    let s = setSessionOrder(state(), 'g-1', ['a', 'b']);
+    s = setSessionOrder(s, undefined, ['x']);
+    expect(sessionOrderOf(s, 'g-1')).toEqual(['a', 'b']);
+    expect(sessionOrderOf(s, undefined)).toEqual(['x']);
+  });
+
+  it('retire l entrée plutôt que d écrire une liste vide', () => {
+    const cleared = setSessionOrder(setSessionOrder(state(), 'g-1', ['a']), 'g-1', []);
+    expect(JSON.parse(serializeGroups(cleared)).sessionOrder).toEqual({});
+  });
+
+  it('fait le tour du fichier', () => {
+    const written = serializeGroups(setSessionOrder(state(), 'g-1', ['a', 'b']));
+    expect(sessionOrderOf(parseGroups(written), 'g-1')).toEqual(['a', 'b']);
+  });
+
+  it('ignore une entrée mal formée sans faire tomber toute la lecture', () => {
+    const raw = JSON.stringify({
+      version: 1,
+      groups: [{ id: 'g-1', name: 'Un', order: 0 }],
+      assignments: {},
+      sessionOrder: { 'g-1': ['a', 42, '', 'b'], 'g-2': 'pas un tableau' },
+    });
+    const s = parseGroups(raw);
+    expect(sessionOrderOf(s, 'g-1')).toEqual(['a', 'b']);
+    expect(sessionOrderOf(s, 'g-2')).toEqual([]);
+    expect(s.groups).toHaveLength(1);
+  });
+
+  it('oublie l ordre d un dossier supprimé', () => {
+    let s = parseGroups(JSON.stringify({ version: 1, groups: [{ id: 'g-1', name: 'Un', order: 0 }], assignments: {} }));
+    s = setSessionOrder(s, 'g-1', ['a', 'b']);
+    expect(sessionOrderOf(deleteGroup(s, 'g-1'), 'g-1')).toEqual([]);
+  });
+
+  it('retire des ordres les sessions qui n existent plus', () => {
+    let s = setSessionOrder(state(), 'g-1', ['vivante', 'morte']);
+    s = setSessionOrder(s, undefined, ['morte']);
+    const pruned = pruneAssignments(s, new Set(['vivante']));
+    expect(sessionOrderOf(pruned, 'g-1')).toEqual(['vivante']);
+    expect(sessionOrderOf(pruned, undefined)).toEqual([]);
+  });
+
+  it('rend le même objet quand il n y a rien à retirer', () => {
+    const s = setSessionOrder(state(), 'g-1', ['vivante']);
+    expect(pruneAssignments(s, new Set(['vivante']))).toBe(s);
   });
 });

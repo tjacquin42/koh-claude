@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import type { Session, Status } from '../events/types';
 import { withStaleness } from '../store/staleness';
 import { sessionDescription, sessionLabel, sessionTooltip, statusLabel } from './labels';
-import { emptyGroups, groupIdOf, type Group, type GroupsState } from '../groups/model';
+import { emptyGroups, groupIdOf, reorder, sessionOrderOf, type Group, type GroupsState } from '../groups/model';
 import { themeColorOf } from './colors';
 
 export type TreeNode =
@@ -94,7 +94,11 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
     // une fonction qui appelle updateGroups. Obligatoire et sans valeur par
     // défaut : un câblage oublié doit échouer à la compilation, pas produire
     // un glisser-déposer silencieusement inerte à l'exécution.
-    private readonly onDrop: (sessionIds: readonly string[], groupId: string | undefined) => Promise<void>,
+    private readonly onDrop: (
+      sessionIds: readonly string[],
+      groupId: string | undefined,
+      order: readonly string[],
+    ) => Promise<void>,
   ) {}
 
   setSessions(map: Map<string, Session>): void {
@@ -110,6 +114,42 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
   setGroups(state: GroupsState): void {
     this.groups = state;
     this.emitter.fire();
+  }
+
+  /**
+   * Applique l'ordre choisi à la main. Les sessions qu'il nomme viennent en
+   * tête, dans cet ordre ; celles qu'il ignore suivent, dans le tri du tableau
+   * de bord — une session ouverte après un rangement se pose donc à la fin sans
+   * bousculer ce qui a été placé.
+   *
+   * `sessions` arrive déjà trié (setSessions) : les restantes gardent cet ordre.
+   */
+  private ordered(sessions: readonly Session[], groupId: string | undefined): Session[] {
+    const wanted = sessionOrderOf(this.groups, groupId);
+    if (wanted.length === 0) return [...sessions];
+    const rank = new Map(wanted.map((id, i) => [id, i]));
+    const placed = sessions
+      .filter((s) => rank.has(s.id))
+      .map((s) => ({ s, at: rank.get(s.id) ?? 0 }))
+      .sort((a, b) => a.at - b.at)
+      .map((x) => x.s);
+    return [...placed, ...sessions.filter((s) => !rank.has(s.id))];
+  }
+
+  /**
+   * Le dossier où une session s'affiche réellement. Une affectation qui désigne
+   * un dossier supprimé ne compte pas : la session est alors « Sans dossier »,
+   * exactement comme dans getChildren — les deux ne doivent jamais diverger.
+   */
+  private groupOfSession(sessionId: string): string | undefined {
+    const id = groupIdOf(this.groups, sessionId);
+    return id !== undefined && this.groups.groups.some((g) => g.id === id) ? id : undefined;
+  }
+
+  /** L'ordre visible d'un dossier, tel qu'il est affiché à cet instant. */
+  private visibleOrder(groupId: string | undefined): string[] {
+    const sessions = this.sessions.filter((s) => this.groupOfSession(s.id) === groupId);
+    return this.ordered(sessions, groupId).map((s) => s.id);
   }
 
   async getChildren(node?: TreeNode): Promise<TreeNode[]> {
@@ -136,15 +176,17 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
           unfiled.push(s);
         }
       }
-      // Les dossiers apparaissent tous, même vides — c'est une cible de dépôt
-      // pour la tâche suivante ; « Sans dossier » seulement s'il a un contenu,
-      // sinon ce reliquat n'a rien à montrer, et toujours en dernier.
+      // Les dossiers apparaissent tous, même vides — c'est une cible de dépôt ;
+      // « Sans dossier » seulement s'il a un contenu, sinon ce reliquat n'a rien
+      // à montrer, et toujours en dernier.
       const nodes: TreeNode[] = this.groups.groups.map((group) => ({
         kind: 'group',
         group,
-        sessions: byGroup.get(group.id) ?? [],
+        sessions: this.ordered(byGroup.get(group.id) ?? [], group.id),
       }));
-      if (unfiled.length > 0) nodes.push({ kind: 'group', group: undefined, sessions: unfiled });
+      if (unfiled.length > 0) {
+        nodes.push({ kind: 'group', group: undefined, sessions: this.ordered(unfiled, undefined) });
+      }
       return withSpacers(nodes);
     }
     if (node.kind === 'group') return node.sessions.map((session) => ({ kind: 'session', session }));
@@ -208,14 +250,24 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
   // ligne ne change rien. `item.value` n'est jamais casté : il transite par
   // `unknown` et n'est accepté qu'après validation explicite de sa forme.
   async handleDrop(target: TreeNode | undefined, data: vscode.DataTransfer): Promise<void> {
-    if (target?.kind !== 'group') return;
+    // Deux cibles valables, et deux seulement : un dossier (on y range, à la
+    // fin) ou une session (on se place devant elle, dans SON dossier). Le vide
+    // de la vue, un séparateur ou le nœud d'état vide ne changent rien.
+    if (target === undefined) return;
+    if (target.kind !== 'group' && target.kind !== 'session') return;
     const item = data.get(SessionsTree.MIME);
     if (item === undefined) return;
     const ids: unknown = item.value;
     if (!Array.isArray(ids)) return;
     const sessionIds = ids.filter((id): id is string => typeof id === 'string');
     if (sessionIds.length === 0) return;
-    await this.onDrop(sessionIds, target.group?.id);
+
+    const groupId = target.kind === 'group' ? target.group?.id : this.groupOfSession(target.session.id);
+    const before = target.kind === 'session' ? target.session.id : undefined;
+    // L'ordre transmis est celui du dossier APRÈS le dépôt, calculé sur ce qui
+    // est affiché maintenant. Le figer entièrement est le but : une session
+    // posée à la main ne doit plus bouger quand son statut change.
+    await this.onDrop(sessionIds, groupId, reorder(this.visibleOrder(groupId), sessionIds, before));
   }
 
   dispose(): void {

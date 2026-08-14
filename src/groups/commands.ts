@@ -1,4 +1,4 @@
-import { assign, createGroup, deleteGroup, renameGroup, setGroupColor, unassign } from './model';
+import { assign, createGroup, deleteGroup, renameGroup, setGroupColor, setSessionOrder, unassign } from './model';
 import type { GroupsState } from './model';
 import { updateGroups } from './store';
 
@@ -69,10 +69,18 @@ export async function applyDrop(
   groupsFilePath: string,
   sessionIds: readonly string[],
   groupId: string | undefined,
+  order: readonly string[],
 ): Promise<GroupsState> {
-  return updateGroups(groupsFilePath, (s) =>
-    sessionIds.reduce((acc, id) => (groupId === undefined ? unassign(acc, id) : assign(acc, id, groupId)), s),
-  );
+  return updateGroups(groupsFilePath, (s) => {
+    const assigned = sessionIds.reduce(
+      (acc, id) => (groupId === undefined ? unassign(acc, id) : assign(acc, id, groupId)),
+      s,
+    );
+    // L'ordre est posé APRÈS les affectations : `assign` refuse une session
+    // vers un dossier disparu entre-temps, et figer un ordre qui la nommerait
+    // encore laisserait le fichier se contredire lui-même.
+    return setSessionOrder(assigned, groupId, order);
+  });
 }
 
 /**

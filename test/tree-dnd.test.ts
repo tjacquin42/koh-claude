@@ -48,7 +48,7 @@ describe('SessionsTree — handleDrop (la décision, pas le mécanisme VSCode)',
     await tree.handleDrop(groupNode('g-perso', 'Perso'), dataWith(['s1']));
 
     expect(onDrop).toHaveBeenCalledTimes(1);
-    expect(onDrop).toHaveBeenCalledWith(['s1'], 'g-perso');
+    expect(onDrop).toHaveBeenCalledWith(['s1'], 'g-perso', ['s1']);
   });
 
   it('affecte plusieurs sessions déposées d un coup sur un dossier', async () => {
@@ -57,7 +57,7 @@ describe('SessionsTree — handleDrop (la décision, pas le mécanisme VSCode)',
 
     await tree.handleDrop(groupNode('g-taf', 'Taf'), dataWith(['s1', 's2', 's3']));
 
-    expect(onDrop).toHaveBeenCalledWith(['s1', 's2', 's3'], 'g-taf');
+    expect(onDrop).toHaveBeenCalledWith(['s1', 's2', 's3'], 'g-taf', ['s1', 's2', 's3']);
   });
 
   it('retire l affectation quand on dépose sur « Sans dossier »', async () => {
@@ -66,7 +66,7 @@ describe('SessionsTree — handleDrop (la décision, pas le mécanisme VSCode)',
 
     await tree.handleDrop(unfiledNode(), dataWith(['s1']));
 
-    expect(onDrop).toHaveBeenCalledWith(['s1'], undefined);
+    expect(onDrop).toHaveBeenCalledWith(['s1'], undefined, ['s1']);
   });
 
   it('ne change rien quand on dépose sur le vide de la vue (aucune cible)', async () => {
@@ -104,7 +104,7 @@ describe('SessionsTree — handleDrop (la décision, pas le mécanisme VSCode)',
 
     await tree.handleDrop(groupNode('g1', 'Dossier'), dataWith(['s1', 42, null, 's2']));
 
-    expect(onDrop).toHaveBeenCalledWith(['s1', 's2'], 'g1');
+    expect(onDrop).toHaveBeenCalledWith(['s1', 's2'], 'g1', ['s1', 's2']);
   });
 
   it('ne change rien quand le tableau transporté ne contient aucune chaîne exploitable', async () => {
@@ -116,20 +116,42 @@ describe('SessionsTree — handleDrop (la décision, pas le mécanisme VSCode)',
     expect(onDrop).not.toHaveBeenCalled();
   });
 
-  // Preuve par mutation : sans ce test, remplacer la garde par
-  // `if (target === undefined) return;` laisse passer une session comme
-  // cible. `target.group` n'existe pas sur un nœud de session — accéder à
-  // cette propriété absente vaut `undefined` en JS, donc ce mutant appellerait
-  // onDrop(ids, undefined), qui retirerait l'affectation en silence au lieu de
-  // ne rien faire. La garde doit filtrer sur `kind === 'group'`, pas sur la
-  // seule présence d'une cible.
-  it('ignore un dépôt sur une session : ne retire pas silencieusement son affectation', async () => {
+  // Une session est désormais une cible : on se place DEVANT elle. Le piège
+  // reste le même qu'avant — `target.group` n'existe pas sur un nœud de
+  // session, et le lire vaudrait `undefined`, donc « Sans dossier ». Le dossier
+  // doit être celui de la session survolée, jamais celui du nœud déposé.
+  it('dépose devant la session survolée, dans le dossier de CETTE session', async () => {
     const onDrop = vi.fn().mockResolvedValue(undefined);
     const tree = new SessionsTree(() => Promise.resolve(true), onDrop);
+    tree.setSessions(new Map([['s1', session('s1')], ['s2', session('s2')], ['s3', session('s3')]]));
+    tree.setGroups({
+      groups: [{ id: 'g1', name: 'Dossier', order: 0 }],
+      assignments: { s1: 'g1', s2: 'g1', s3: 'g1' },
+      sessionOrder: { g1: ['s1', 's2', 's3'] },
+      unknown: {},
+    });
 
-    await tree.handleDrop(sessionNode('s2'), dataWith(['s1']));
+    await tree.handleDrop(sessionNode('s2'), dataWith(['s3']));
 
-    expect(onDrop).not.toHaveBeenCalled();
+    // Le dossier est bien g1 — et surtout PAS undefined, qui aurait sorti la
+    // session de son dossier en croyant la réordonner.
+    expect(onDrop).toHaveBeenCalledWith(['s3'], 'g1', ['s1', 's3', 's2']);
+  });
+
+  it('déposer une session sur elle-même ne la fait pas disparaître', async () => {
+    const onDrop = vi.fn().mockResolvedValue(undefined);
+    const tree = new SessionsTree(() => Promise.resolve(true), onDrop);
+    tree.setSessions(new Map([['s1', session('s1')], ['s2', session('s2')]]));
+    tree.setGroups({
+      groups: [{ id: 'g1', name: 'Dossier', order: 0 }],
+      assignments: { s1: 'g1', s2: 'g1' },
+      sessionOrder: { g1: ['s1', 's2'] },
+      unknown: {},
+    });
+
+    await tree.handleDrop(sessionNode('s1'), dataWith(['s1']));
+
+    expect(onDrop).toHaveBeenCalledWith(['s1'], 'g1', ['s1', 's2']);
   });
 
   it("ignore un dépôt sur le nœud d'état vide, pour la même raison", async () => {
@@ -153,7 +175,7 @@ describe('SessionsTree — handleDrop (la décision, pas le mécanisme VSCode)',
     // n'importe quel autre dossier — l'idempotence est la charge d'`onDrop`
     // (Task 9), pas celle de la vue.
     expect(onDrop).toHaveBeenCalledTimes(1);
-    expect(onDrop).toHaveBeenCalledWith(['s1'], 'g1');
+    expect(onDrop).toHaveBeenCalledWith(['s1'], 'g1', ['s1']);
   });
 });
 

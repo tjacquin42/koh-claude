@@ -45,8 +45,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // d'applyDrop (groups/commands.ts), jamais une écriture directe — voir sa
   // documentation. Un rendu explicite suit l'écriture pour que le dossier se
   // peuple tout de suite à l'écran, sans attendre le minuteur (REFRESH_MS).
-  async function onSessionsDropped(sessionIds: readonly string[], groupId: string | undefined): Promise<void> {
-    await applyDrop(groupsPath, sessionIds, groupId);
+  async function onSessionsDropped(
+    sessionIds: readonly string[],
+    groupId: string | undefined,
+    order: readonly string[],
+  ): Promise<void> {
+    await applyDrop(groupsPath, sessionIds, groupId, order);
     await render();
   }
 
