@@ -15,6 +15,7 @@ import { readGroups } from './groups/store';
 import type { TranscriptStats } from './transcript/reader';
 import { withTokens } from './transcript/tokens';
 import { SessionsTree, groupIdOfNode } from './ui/tree';
+import { decorationColorOf } from './ui/decorations';
 import { StatusSummary } from './ui/statusbar';
 import { readBuildStamp, versionLabel } from './ui/version';
 import { FocusBroker } from './focus/broker';
@@ -69,6 +70,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const status = new StatusSummary();
   const broker = new FocusBroker(dirs);
   const transcripts = new Map<string, TranscriptStats>();
+
+  // Seul moyen offert par VSCode de colorer le TEXTE d'une ligne d'arbre. Sans
+  // état propre : la couleur est portée par l'URI que l'arbre pose sur chaque
+  // ligne, donc rien à resynchroniser quand elle change.
+  context.subscriptions.push(
+    vscode.window.registerFileDecorationProvider({
+      provideFileDecoration(uri) {
+        const color = decorationColorOf(uri);
+        return color === undefined ? undefined : { color: new vscode.ThemeColor(color) };
+      },
+    }),
+  );
 
   const view = vscode.window.createTreeView('kohVibe.sessions', {
     treeDataProvider: tree,

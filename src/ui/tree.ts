@@ -5,7 +5,8 @@ import { sessionDescription, sessionLabel, sessionTooltip, statusLabel } from '.
 import { emptyGroups, groupIdOf, reorder, sessionOrderOf, type Group, type GroupsState } from '../groups/model';
 import { themeColorOf } from './colors';
 import { usageColor, usageLabel, usageTooltip } from './usage-label';
-import type { Usage } from '../usage/model';
+import { decorationUriParts } from './decorations';
+import type { UsageReading } from '../usage/reader';
 
 export type TreeNode =
   // `group: undefined` désigne « Sans dossier », le reliquat des sessions non
@@ -20,16 +21,29 @@ export type TreeNode =
   // La consommation mesurée par Claude Code, en tête de la vue. Absente tant que
   // le pont de statusline n'est pas installé — auquel cas la ligne n'existe pas,
   // plutôt que d'afficher zéro et de laisser croire à une consommation nulle.
-  | { kind: 'usage'; usage: Usage }
+  | { kind: 'usage'; usage: UsageReading }
   // `action` distingue « il faut installer les hooks », cliquable, de « rien à
   // afficher », qui ne doit rien déclencher.
   | { kind: 'empty'; message: string; action?: 'install' };
 
-const ICONS: Record<Status, { id: string; color?: string }> = {
+/**
+ * La pastille de chaque statut.
+ *
+ * `color` est OBLIGATOIRE, et ce n'est pas une coquetterie : VSCode ne rend pas
+ * une icône colorée et une icône sans couleur par le même chemin, et le libellé
+ * d'une ligne sans couleur part quelques pixels plus à droite. Une seule pastille
+ * incolore suffisait à désaligner toutes les sessions à l'arrêt. Un test garde
+ * l'invariant — un commentaire ne l'aurait pas gardé.
+ *
+ * `waiting` ne porte volontairement PAS de triangle d'avertissement : une session
+ * qui attend une réponse n'est pas une panne, et le triangle donnait l'impression
+ * d'un problème à régler. Un point d'interrogation dit la même chose sans alarmer.
+ */
+const ICONS: Record<Status, { id: string; color: string }> = {
   running: { id: 'circle-filled', color: 'charts.blue' },
-  waiting: { id: 'warning', color: 'charts.yellow' },
+  waiting: { id: 'question', color: 'charts.yellow' },
   done_unseen: { id: 'check', color: 'charts.green' },
-  idle: { id: 'circle-outline' },
+  idle: { id: 'circle-outline', color: 'descriptionForeground' },
   stale: { id: 'circle-slash', color: 'disabledForeground' },
 };
 
@@ -87,7 +101,7 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
   readonly onDidChangeTreeData = this.emitter.event;
   private sessions: Session[] = [];
   private groups: GroupsState = emptyGroups();
-  private usage: Usage | undefined;
+  private usage: UsageReading | undefined;
 
   constructor(
     // Reçoit la vérification plutôt que de la posséder : lire settings.json
@@ -116,7 +130,7 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
     this.emitter.fire();
   }
 
-  setUsage(usage: Usage | undefined): void {
+  setUsage(usage: UsageReading | undefined): void {
     this.usage = usage;
     this.emitter.fire();
   }
@@ -220,10 +234,10 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
     }
     if (node.kind === 'usage') {
       const now = Date.now();
-      const item = new vscode.TreeItem(usageLabel(node.usage));
+      const item = new vscode.TreeItem(usageLabel(node.usage.usage));
       item.tooltip = usageTooltip(node.usage, now);
       item.contextValue = 'usage';
-      const color = usageColor(node.usage);
+      const color = usageColor(node.usage.usage);
       item.iconPath = new vscode.ThemeIcon(
         'pulse',
         color === undefined ? undefined : new vscode.ThemeColor(color),
@@ -243,6 +257,11 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
       // pouvoir porter un choix de l'utilisateur.
       const theme = themeColorOf(node.group?.color);
       item.iconPath = new vscode.ThemeIcon('folder', theme === undefined ? undefined : new vscode.ThemeColor(theme));
+      // Le libellé suit l'icône : c'est le fournisseur de décorations qui le
+      // colore, seul moyen offert par VSCode d'atteindre le texte d'une ligne.
+      if (theme !== undefined && node.group !== undefined) {
+        item.resourceUri = vscode.Uri.from(decorationUriParts('group', node.group.id, theme));
+      }
       // « Sans dossier » n'est pas un dossier de l'utilisateur : pas d'id, pas
       // de renommage ni de suppression possibles, donc pas ce contextValue.
       item.contextValue = node.group === undefined ? 'unfiled' : 'group';
@@ -257,10 +276,13 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
     item.contextValue = 'session';
     item.accessibilityInformation = { label: `${sessionLabel(s)}, ${statusLabel(s.status)}` };
     const icon = ICONS[s.status];
-    item.iconPath = new vscode.ThemeIcon(
-      icon.id,
-      icon.color === undefined ? undefined : new vscode.ThemeColor(icon.color),
-    );
+    item.iconPath = new vscode.ThemeIcon(icon.id, new vscode.ThemeColor(icon.color));
+    // Les sessions d'un dossier coloré portent sa couleur : c'est ce qui fait
+    // lire l'appartenance d'un coup d'œil, plutôt que ligne par ligne.
+    const groupTheme = themeColorOf(this.groups.groups.find((g) => g.id === groupIdOf(this.groups, s.id))?.color);
+    if (groupTheme !== undefined) {
+      item.resourceUri = vscode.Uri.from(decorationUriParts('session', s.id, groupTheme));
+    }
     item.command = { command: 'kohVibe.focusSession', title: 'Aller à la session', arguments: [s] };
     return item;
   }

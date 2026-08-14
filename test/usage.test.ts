@@ -90,32 +90,96 @@ describe('usageColor', () => {
 });
 
 describe('usageTooltip', () => {
+  const reading = (raw: unknown, at = 0) => ({ usage: parseUsage(raw)!, source: 'statusline' as const, at });
+
   it('convertit l échéance en secondes, pas en millisecondes', () => {
     // 1786297800 s vaut 2026-08-14T18:30:00Z ; une lecture en millisecondes
     // placerait la réinitialisation en 1970 et afficherait « réinitialisée ».
     const now = 1786297800 * 1000 - 2 * 3600 * 1000;
-    expect(usageTooltip(parseUsage(REAL)!, now)).toContain('dans 2 h');
+    expect(usageTooltip(reading(REAL, now), now)).toContain('dans 2 h');
   });
 
   it('dit qu une fenêtre échue est réinitialisée, jamais un délai négatif', () => {
     const now = 1786297800 * 1000 + 60_000;
-    const line = usageTooltip(parseUsage({ rate_limits: { five_hour: { used_percentage: 1, resets_at: 1786297800 } } })!, now);
+    const line = usageTooltip(reading({ rate_limits: { five_hour: { used_percentage: 1, resets_at: 1786297800 } } }, now), now);
     expect(line).toContain('réinitialisée');
     expect(line).not.toContain('-');
+  });
+
+  it('dit d où vient la mesure et depuis quand', () => {
+    const now = 600_000;
+    expect(usageTooltip({ usage: parseUsage(REAL)!, source: 'vibe-island', at: now - 120_000 }, now)).toContain(
+      'Source : Vibe Island, il y a 2 min',
+    );
+    expect(usageTooltip({ usage: parseUsage(REAL)!, source: 'statusline', at: now }, now)).toContain(
+      'Source : statusline Claude Code',
+    );
+  });
+});
+
+// La forme réellement observée dans ~/.vibe-island/cache/usage-persist.json :
+// les mêmes champs, mais à la racine plutôt que sous `rate_limits`.
+const ISLAND = {
+  provider: 'anthropic',
+  windows: [{ kind: 'five_hour', utilization: 5 }],
+  five_hour: { used_percentage: 5, resets_at: 1786738200 },
+  seven_day: { used_percentage: 3, resets_at: 1787317200 },
+};
+
+describe('parseUsage — les deux emboîtements', () => {
+  it('lit aussi les fenêtres posées à la racine, comme le cache de Vibe Island', () => {
+    expect(parseUsage(ISLAND)).toEqual({
+      fiveHour: { percent: 5, resetsAt: 1786738200 },
+      sevenDay: { percent: 3, resetsAt: 1787317200 },
+    });
   });
 });
 
 describe('readUsage', () => {
-  it('lit le fichier déposé par le pont', async () => {
+  const bothIn = async (): Promise<{ home: string; island: string }> => {
     const home = await mkdtemp(join(tmpdir(), 'koh-usage-'));
+    return { home, island: join(home, 'island.json') };
+  };
+
+  it('lit le fichier déposé par le pont', async () => {
+    const { home, island } = await bothIn();
     await writeFile(join(home, 'status.json'), JSON.stringify(REAL), 'utf8');
-    expect((await readUsage(home))?.fiveHour?.percent).toBe(78);
+    const r = await readUsage(home, { KOH_VIBE_ISLAND_USAGE: island });
+    expect(r?.usage.fiveHour?.percent).toBe(78);
+    expect(r?.source).toBe('statusline');
+  });
+
+  it('se rabat sur le cache de Vibe Island quand notre pont n a rien capté', async () => {
+    const { home, island } = await bothIn();
+    await writeFile(island, JSON.stringify(ISLAND), 'utf8');
+    const r = await readUsage(home, { KOH_VIBE_ISLAND_USAGE: island });
+    expect(r?.usage.fiveHour?.percent).toBe(5);
+    expect(r?.source).toBe('vibe-island');
+  });
+
+  it('garde la plus FRAÎCHE des deux, jamais une priorité fixe', async () => {
+    const { home, island } = await bothIn();
+    // Notre instantané d abord, celui de l île ensuite : c est lui qui gagne.
+    await writeFile(join(home, 'status.json'), JSON.stringify(REAL), 'utf8');
+    await new Promise((r) => setTimeout(r, 20));
+    await writeFile(island, JSON.stringify(ISLAND), 'utf8');
+    expect((await readUsage(home, { KOH_VIBE_ISLAND_USAGE: island }))?.source).toBe('vibe-island');
+
+    // Puis l inverse, sur les mêmes fichiers : la préférence suit la date.
+    await new Promise((r) => setTimeout(r, 20));
+    await writeFile(join(home, 'status.json'), JSON.stringify(REAL), 'utf8');
+    expect((await readUsage(home, { KOH_VIBE_ISLAND_USAGE: island }))?.source).toBe('statusline');
   });
 
   it('traite l absence et l illisible comme « pas de mesure », jamais comme une erreur', async () => {
-    const home = await mkdtemp(join(tmpdir(), 'koh-usage-'));
-    expect(await readUsage(home)).toBeUndefined();
+    const { home, island } = await bothIn();
+    expect(await readUsage(home, { KOH_VIBE_ISLAND_USAGE: island })).toBeUndefined();
     await writeFile(join(home, 'status.json'), 'pas du JSON', 'utf8');
-    expect(await readUsage(home)).toBeUndefined();
+    expect(await readUsage(home, { KOH_VIBE_ISLAND_USAGE: island })).toBeUndefined();
+  });
+
+  it('ne va jamais chercher le vrai cache de la machine quand le test le redirige', async () => {
+    const { home } = await bothIn();
+    expect(await readUsage(home, { KOH_VIBE_ISLAND_USAGE: join(home, 'inexistant.json') })).toBeUndefined();
   });
 });

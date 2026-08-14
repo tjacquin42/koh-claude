@@ -1,5 +1,6 @@
 import { formatAge } from './labels';
 import type { Usage, UsageWindow } from '../usage/model';
+import type { UsageReading } from '../usage/reader';
 
 /** Au-delà, la pastille change de couleur : l'usage devient une information à voir, pas à chercher. */
 const WARN_PERCENT = 75;
@@ -28,7 +29,13 @@ function resetText(w: UsageWindow | undefined, now: number): string | undefined 
   return remaining <= 0 ? 'réinitialisée' : `dans ${formatAge(remaining)}`;
 }
 
-export function usageTooltip(u: Usage, now: number): string {
+const SOURCE_FR: Record<UsageReading['source'], string> = {
+  statusline: 'statusline Claude Code',
+  'vibe-island': 'Vibe Island',
+};
+
+export function usageTooltip(r: UsageReading, now: number): string {
+  const u = r.usage;
   const lines: string[] = [];
   if (u.fiveHour !== undefined) {
     lines.push(`5 heures : ${Math.round(u.fiveHour.percent)} %${suffix(resetText(u.fiveHour, now))}`);
@@ -36,7 +43,9 @@ export function usageTooltip(u: Usage, now: number): string {
   if (u.sevenDay !== undefined) {
     lines.push(`7 jours : ${Math.round(u.sevenDay.percent)} %${suffix(resetText(u.sevenDay, now))}`);
   }
-  lines.push('Mesuré par Claude Code, capté au passage de la statusline.');
+  // La provenance et l'âge sont dits, pas devinés : les deux sources se taisent
+  // tour à tour, et un pourcentage sans date laisserait croire qu'il est frais.
+  lines.push(`Source : ${SOURCE_FR[r.source]}, il y a ${formatAge(Math.max(0, now - r.at))}`);
   return lines.join('\n');
 }
 

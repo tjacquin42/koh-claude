@@ -49,6 +49,26 @@ export function statusFile(home: string): string {
   return join(home, 'status.json');
 }
 
+/**
+ * Le cache d'usage de Vibe Island, lu s'il existe.
+ *
+ * Pourquoi une seconde source : Claude Code ne passe `rate_limits` qu'à la
+ * statusline, et la statusline ne tourne pas dans une session hébergée par
+ * l'éditeur — notre propre instantané reste donc vide tant qu'on n'a pas lancé
+ * une session en terminal. Vibe Island, lui, interroge l'API et rafraîchit ce
+ * fichier en continu.
+ *
+ * Lecture opportuniste, jamais une dépendance : le fichier appartient à un autre
+ * produit, son format peut changer sans prévenir, et son absence est le cas
+ * normal pour qui n'a pas Vibe Island. Il est donc validé comme n'importe quelle
+ * donnée venue de l'extérieur, et son absence ne vaut jamais une erreur.
+ */
+export function vibeIslandUsageFile(env: NodeJS.ProcessEnv = process.env): string {
+  const override = env['KOH_VIBE_ISLAND_USAGE'];
+  if (override !== undefined && override.length > 0) return override;
+  return join(env['HOME'] ?? '', '.vibe-island', 'cache', 'usage-persist.json');
+}
+
 /** Fichier partagé du classement en dossiers, à la racine de l'état de koh-vibe. */
 export function groupsFile(home: string): string {
   return join(home, 'groups.json');

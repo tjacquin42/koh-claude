@@ -24,7 +24,9 @@ export class StatusSummary {
     }
 
     const parts: string[] = [];
-    if (waiting > 0) parts.push(`$(warning) ${waiting}`);
+    // Même raison que la pastille de l'arbre : une session qui attend n'est pas
+    // une panne.
+    if (waiting > 0) parts.push(`$(question) ${waiting}`);
     if (running > 0) parts.push(`$(circle-filled) ${running}`);
     if (done > 0) parts.push(`$(check) ${done}`);
     this.item.text = parts.length > 0 ? parts.join(' · ') : `$(circle-outline) ${sessions.length}`;

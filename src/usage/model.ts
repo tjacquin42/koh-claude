@@ -47,8 +47,12 @@ function windowOf(v: unknown): UsageWindow | undefined {
  */
 export function parseUsage(raw: unknown): Usage | undefined {
   if (!isRecord(raw)) return undefined;
-  const limits = raw['rate_limits'];
-  if (!isRecord(limits)) return undefined;
+  // Deux sources, deux emboîtements : la statusline enveloppe ses fenêtres dans
+  // `rate_limits`, le cache de Vibe Island les porte à la racine. Les champs
+  // eux-mêmes sont identiques, donc une seule lecture suffit — dès lors qu'on
+  // regarde au bon niveau.
+  const nested = raw['rate_limits'];
+  const limits = isRecord(nested) ? nested : raw;
   const fiveHour = windowOf(limits['five_hour']);
   const sevenDay = windowOf(limits['seven_day']);
   if (fiveHour === undefined && sevenDay === undefined) return undefined;

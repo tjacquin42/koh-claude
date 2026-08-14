@@ -36,6 +36,29 @@ export enum TreeItemCollapsibleState {
   Expanded = 2,
 }
 
+/**
+ * Assez fidèle pour ce que la vue en fait : `Uri.from` conserve les champs et
+ * `toString` les recompose. Le bouchon ne cherche pas à reproduire l'encodage
+ * complet de VSCode — les tests portent sur ce que l'arbre POSE, et la lecture
+ * de l'URI est éprouvée à part, sur une fonction pure (ui/decorations.ts).
+ */
+export class Uri {
+  private constructor(
+    public readonly scheme: string,
+    public readonly authority: string,
+    public readonly path: string,
+    public readonly query: string,
+  ) {}
+
+  static from(parts: { scheme: string; authority?: string; path?: string; query?: string }): Uri {
+    return new Uri(parts.scheme, parts.authority ?? '', parts.path ?? '', parts.query ?? '');
+  }
+
+  toString(): string {
+    return `${this.scheme}://${this.authority}${this.path}?${this.query}`;
+  }
+}
+
 export class ThemeColor {
   constructor(public readonly id: string) {}
 }

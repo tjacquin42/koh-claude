@@ -424,3 +424,74 @@ describe('SessionsTree — ordre choisi à la main', () => {
     expect(await labelsOf(tree, unfiled)).toEqual(['trois', 'deux']);
   });
 });
+
+describe('SessionsTree — pastilles de statut', () => {
+  const iconOf = (status: Session['status']) => {
+    const tree = new SessionsTree(() => Promise.resolve(true), noopOnDrop);
+    tree.setSessions(new Map([['s1', session('s1', { status })]]));
+    tree.setGroups(groups({}));
+    const item = tree.getTreeItem({ kind: 'session', session: session('s1', { status }) });
+    return item.iconPath as { id: string; color?: { id: string } };
+  };
+
+  const ALL: Array<Session['status']> = ['running', 'waiting', 'done_unseen', 'idle', 'stale'];
+
+  it('donne une couleur à CHAQUE statut, sans exception', () => {
+    // L invariant que ce test garde : une pastille sans couleur n est pas rendue
+    // par le même chemin dans VSCode, et son libellé part plus à droite. Une
+    // seule exception désalignait toutes les sessions à l arrêt.
+    for (const status of ALL) {
+      expect(iconOf(status).color?.id, `statut ${status}`).toBeTruthy();
+    }
+  });
+
+  it('n alarme pas pour une session qui attend : pas de triangle d avertissement', () => {
+    expect(iconOf('waiting').id).toBe('question');
+    for (const status of ALL) expect(iconOf(status).id).not.toBe('warning');
+  });
+
+  it('donne une pastille distincte à chaque statut', () => {
+    expect(new Set(ALL.map((s) => iconOf(s).id)).size).toBe(ALL.length);
+  });
+});
+
+describe('SessionsTree — la couleur atteint le libellé, pas seulement l icône', () => {
+  const colored = (): SessionsTree => {
+    const tree = new SessionsTree(() => Promise.resolve(true), noopOnDrop);
+    tree.setSessions(new Map([['s1', session('s1')], ['s2', session('s2')]]));
+    tree.setGroups(
+      groups({
+        groups: [
+          { id: 'g1', name: 'Coloré', order: 0, color: 'green' },
+          { id: 'g2', name: 'Sans couleur', order: 1 },
+        ],
+        assignments: { s1: 'g1', s2: 'g2' },
+      }),
+    );
+    return tree;
+  };
+
+  it('pose une URI de décoration sur le dossier coloré', async () => {
+    const [group] = await colored().getChildren();
+    const uri = colored().getTreeItem(group!).resourceUri as { scheme: string; query: string } | undefined;
+    expect(uri?.scheme).toBe('koh-vibe');
+    expect(uri?.query).toBe('c=charts.green');
+  });
+
+  it('fait descendre la couleur sur les sessions de ce dossier', async () => {
+    const tree = colored();
+    const [group] = await tree.getChildren();
+    const [child] = await tree.getChildren(group!);
+    const uri = tree.getTreeItem(child!).resourceUri as { query: string } | undefined;
+    expect(uri?.query).toBe('c=charts.green');
+  });
+
+  it('ne pose aucune URI sur un dossier sans couleur, ni sur ses sessions', async () => {
+    const tree = colored();
+    const children = await tree.getChildren();
+    const plain = children[2];
+    expect(tree.getTreeItem(plain!).resourceUri).toBeUndefined();
+    const [child] = await tree.getChildren(plain!);
+    expect(tree.getTreeItem(child!).resourceUri).toBeUndefined();
+  });
+});
