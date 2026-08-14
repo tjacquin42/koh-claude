@@ -30,19 +30,12 @@ const noopOnDrop = async (): Promise<void> => undefined;
 // Les tests affirment la liste des libellés effectivement rendus (via
 // getTreeItem), pas un simple compte de nœuds : un compte ne dit rien de
 // l'ordre ni du contenu, deux propriétés que ces règles portent explicitement.
-// Le pied de vue — séparateur, réglage du son, consommation — est TOUJOURS
-// présent, même sans aucune session : ce sont des réglages, pas des
-// conversations. Ces tests-ci portent sur la liste, il est donc retiré ici et
-// éprouvé à part (voir « pied de vue » plus bas).
-const FOOT = 3;
-
 const labelsOf = async (tree: SessionsTree, node?: TreeNode): Promise<string[]> => {
   const children = await tree.getChildren(node);
-  const shown = node === undefined ? children.slice(0, -FOOT) : children;
-  return shown.map((child) => String(tree.getTreeItem(child).label));
+  return children.map((child) => String(tree.getTreeItem(child).label));
 };
 
-const bodyOf = async (tree: SessionsTree): Promise<TreeNode[]> => (await tree.getChildren()).slice(0, -FOOT);
+const bodyOf = async (tree: SessionsTree): Promise<TreeNode[]> => tree.getChildren();
 
 // I5 : l'état « hooks installés » ne doit être recalculé que lorsqu'il est
 // réellement consulté — c'est-à-dire quand l'arbre s'apprête à afficher son
@@ -455,13 +448,16 @@ describe('SessionsTree — pastilles de statut', () => {
     }
   });
 
-  it('n alarme pas pour une session qui attend : pas de triangle d avertissement', () => {
-    expect(iconOf('waiting').id).toBe('question');
+  it('n alarme pas pour une session qui attend : aucun triangle d avertissement', () => {
     for (const status of ALL) expect(iconOf(status).id).not.toBe('warning');
   });
 
-  it('donne une pastille distincte à chaque statut', () => {
-    expect(new Set(ALL.map((s) => iconOf(s).id)).size).toBe(ALL.length);
+  it('emploie le MÊME glyphe pour tous les statuts, et ne distingue que par la couleur', () => {
+    // C est l alignement qui l exige : des glyphes différents ne se posaient pas
+    // au même endroit dans la ligne, et le libellé héritait du décalage. Le
+    // statut se lit à la couleur, et se nomme dans l infobulle.
+    expect(new Set(ALL.map((s) => iconOf(s).id)).size).toBe(1);
+    expect(new Set(ALL.map((s) => iconOf(s).color?.id)).size).toBe(ALL.length);
   });
 });
 
@@ -509,58 +505,62 @@ describe('SessionsTree — la couleur atteint le libellé, pas seulement l icôn
   });
 });
 
-describe('SessionsTree — pied de vue : son puis consommation', () => {
-  const footOf = async (tree: SessionsTree): Promise<TreeNode[]> =>
-    (await tree.getChildren()).slice(-FOOT);
-
-  const withSessions = (): SessionsTree => {
-    const tree = new SessionsTree(() => Promise.resolve(true), noopOnDrop);
-    tree.setSessions(new Map([['s1', session('s1')]]));
-    tree.setGroups(groups({}));
-    return tree;
+describe('SessionsTree — ne prévient VSCode que si l affichage a changé', () => {
+  const listen = (tree: SessionsTree): { count: () => number } => {
+    let n = 0;
+    tree.onDidChangeTreeData(() => {
+      n += 1;
+    });
+    return { count: () => n };
   };
 
-  it('place le son puis la consommation tout en bas, dans cet ordre', async () => {
-    expect((await footOf(withSessions())).map((n) => n.kind)).toEqual(['spacer', 'sound', 'usage']);
-  });
-
-  it('les garde même sans aucune session — ce sont des réglages, pas des conversations', async () => {
+  it('ne signale rien quand le rendu est identique', async () => {
+    // Le bug que ce test garde : le rendu tourne toutes les deux secondes et
+    // appelle quatre setters. Signaler à chaque fois faisait reconstruire
+    // l arbre deux fois par seconde, ce qui escamotait l infobulle sous la
+    // souris avant qu on ait fini de la lire.
     const tree = new SessionsTree(() => Promise.resolve(true), noopOnDrop);
-    expect((await footOf(tree)).map((n) => n.kind)).toEqual(['spacer', 'sound', 'usage']);
+    const map = new Map([['s1', session('s1', { lastEventAt: 1000 })]]);
+    tree.setSessions(map);
+    const heard = listen(tree);
+
+    for (let i = 0; i < 10; i++) {
+      tree.setSessions(new Map([['s1', session('s1', { lastEventAt: 1000 })]]));
+      tree.setGroups(groups({}));
+        }
+
+    expect(heard.count()).toBe(0);
   });
 
-  it('affiche la consommation même sans mesure : c est cette ligne qui porte le rafraîchissement', async () => {
-    const tree = withSessions();
-    const [, , usage] = await footOf(tree);
-    const item = tree.getTreeItem(usage!);
-    expect(String(item.label)).toBe('Consommation : inconnue');
-    expect(item.command?.command).toBe('kohVibe.refreshUsage');
+  it('signale dès qu un statut change', () => {
+    const tree = new SessionsTree(() => Promise.resolve(true), noopOnDrop);
+    tree.setSessions(new Map([['s1', session('s1', { status: 'idle' })]]));
+    const heard = listen(tree);
+    tree.setSessions(new Map([['s1', session('s1', { status: 'waiting' })]]));
+    expect(heard.count()).toBe(1);
   });
 
-  it('rend la ligne du son cliquable, et dit l état courant', async () => {
-    const tree = withSessions();
-    tree.setSound('Ping');
-    const [, sound] = await footOf(tree);
-    const item = tree.getTreeItem(sound!);
-    expect(String(item.label)).toBe('Son : Ping');
-    expect(item.command?.command).toBe('kohVibe.chooseSound');
+  it('signale dès qu un dossier change de nom ou de couleur', () => {
+    const tree = new SessionsTree(() => Promise.resolve(true), noopOnDrop);
+    tree.setSessions(new Map([['s1', session('s1')]]));
+    tree.setGroups(groups({ groups: [{ id: 'g1', name: 'Un', order: 0 }] }));
+    const heard = listen(tree);
+    tree.setGroups(groups({ groups: [{ id: 'g1', name: 'Un', order: 0, color: 'green' }] }));
+    expect(heard.count()).toBe(1);
+    tree.setGroups(groups({ groups: [{ id: 'g1', name: 'Deux', order: 0, color: 'green' }] }));
+    expect(heard.count()).toBe(2);
   });
 
-  it('donne une couleur explicite aux deux pastilles du pied, comme aux statuts', async () => {
-    // Même invariant que les pastilles de statut : une icône sans couleur est
-    // rendue par un autre chemin et son libellé se décale.
-    const tree = withSessions();
-    for (const node of (await footOf(tree)).filter((n) => n.kind !== 'spacer')) {
-      const icon = tree.getTreeItem(node).iconPath as { color?: { id: string } };
-      expect(icon.color?.id).toBeTruthy();
-    }
-  });
-
-  it('ne fait du pied ni une cible de dépôt ni un dossier', async () => {
-    const tree = withSessions();
-    for (const node of await footOf(tree)) {
-      expect(groupIdOfNode(node)).toBeUndefined();
-      expect(await tree.getChildren(node)).toEqual([]);
-    }
+  it('signale quand l âge affiché franchit une minute, pas à chaque seconde', () => {
+    const tree = new SessionsTree(() => Promise.resolve(true), noopOnDrop);
+    const now = Date.now();
+    tree.setSessions(new Map([['s1', session('s1', { status: 'idle', lastEventAt: now - 30_000 })]]));
+    const heard = listen(tree);
+    // Toujours « 3x s » : rien à annoncer.
+    tree.setSessions(new Map([['s1', session('s1', { status: 'idle', lastEventAt: now - 31_000 })]]));
+    expect(heard.count()).toBe(0);
+    // Passe la minute : l affichage change, donc on annonce.
+    tree.setSessions(new Map([['s1', session('s1', { status: 'idle', lastEventAt: now - 61_000 })]]));
+    expect(heard.count()).toBe(1);
   });
 });

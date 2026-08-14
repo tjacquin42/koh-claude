@@ -7,14 +7,23 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 const BRIDGE = join(process.cwd(), 'bin/koh-vibe-bridge');
 let home: string;
 
+/**
+ * `spawnSync` plutôt qu'`execFileSync` : quand le spool n'existe pas, le pont
+ * sort AVANT d'avoir lu son entrée (c'est le comportement voulu), et le parent
+ * reçoit alors EPIPE en écrivant dans un tuyau déjà fermé. `execFileSync` en
+ * faisait une exception — un test rouge par intermittence, pour un pont qui se
+ * comportait exactement comme il doit. Ici l'EPIPE est ce qu'il est : une course
+ * du côté de l'appelant, sans rapport avec le code de retour qu'on vérifie.
+ */
 function run(event: string, stdin: string, env: Record<string, string> = {}): number {
-  const res = execFileSync(BRIDGE, [event], {
+  const res = spawnSync(BRIDGE, [event], {
     input: stdin,
     env: { ...process.env, KOH_VIBE_HOME: home, ...env },
     encoding: 'utf8',
   });
-  expect(res).toBe(''); // rien sur stdout, jamais
-  return 0;
+  if (res.error !== undefined && (res.error as NodeJS.ErrnoException).code !== 'EPIPE') throw res.error;
+  expect(res.stdout).toBe(''); // rien sur stdout, jamais
+  return res.status ?? 0;
 }
 
 beforeEach(() => {

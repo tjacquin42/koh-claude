@@ -23,6 +23,20 @@ export function formatAge(ms: number): string {
   return `${Math.floor(minutes / 60)} h`;
 }
 
+/**
+ * L'âge tel que la LISTE l'affiche : stable pendant toute la première minute,
+ * puis à la minute près.
+ *
+ * `formatAge` compte les secondes, ce qui est juste mais rend le libellé
+ * différent à chaque tour de rendu. La vue s'en sert pour décider s'il y a
+ * quelque chose à réafficher : un texte qui bouge toutes les deux secondes fait
+ * reconstruire l'arbre en permanence, et escamote l'infobulle sous la souris.
+ * L'infobulle, elle, garde la précision — on l'ouvre pour les détails.
+ */
+export function formatAgeCoarse(ms: number): string {
+  return ms < 60_000 ? "à l'instant" : formatAge(ms);
+}
+
 export function formatTokens(n: number): string {
   if (n < 1_000) return String(n);
   // Bascule à 999 500 et non à 1 000 000 : au-delà, l'arrondi au millier rendrait
@@ -60,7 +74,7 @@ export function sessionDescription(s: Session, now: number): string {
   // pas pour autant — il reste dans l'infobulle et dans le libellé
   // d'accessibilité, les deux endroits où une icône ne suffit pas.
   const where = s.branch === undefined ? s.project : `${s.project} · ${s.branch}`;
-  const age = formatAge(now - s.lastEventAt);
+  const age = formatAgeCoarse(now - s.lastEventAt);
   return s.title === undefined ? age : `${where} · ${age}`;
 }
 

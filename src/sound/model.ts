@@ -1,23 +1,27 @@
 import type { Session, Status } from '../events/types';
 
 /**
- * Les statuts qui méritent un son.
+ * L'événement qui mérite un son, et son réglage.
  *
  * Pas « tout changement de statut » : une session passe d'elle-même de
  * `running` à `idle` puis à `stale` sans que rien ne se soit produit pour
  * l'utilisateur, et un carillon à chaque bascule deviendrait un bruit de fond
  * qu'on apprend à ignorer — donc un signal mort. Ne sonnent que les deux
- * transitions qui appellent une action : une session qui t'attend, et une
- * session qui vient de finir.
+ * transitions qui appellent une action.
  */
-const CHIMING: ReadonlySet<Status> = new Set<Status>(['waiting', 'done_unseen']);
+export type ChimeEvent = 'waiting' | 'done';
+
+const EVENT_OF: Partial<Record<Status, ChimeEvent>> = {
+  waiting: 'waiting',
+  done_unseen: 'done',
+};
 
 export function statusesOf(sessions: ReadonlyMap<string, Session>): Map<string, Status> {
   return new Map([...sessions].map(([id, s]) => [id, s.status]));
 }
 
 /**
- * Faut-il sonner ?
+ * Quel son jouer, s'il y en a un.
  *
  * `before === undefined` est le PREMIER rendu : tout y ressemble à une
  * transition, et sonner ferait carillonner l'éditeur à chaque ouverture de
@@ -26,16 +30,23 @@ export function statusesOf(sessions: ReadonlyMap<string, Session>): Map<string, 
  *
  * Une session inconnue de `before` mais présente ensuite ne sonne pas non plus :
  * elle vient d'apparaître dans le spool, on ne sait pas d'où elle vient.
+ *
+ * Un seul son par tour, même si plusieurs sessions basculent : deux carillons
+ * simultanés ne s'entendent pas mieux qu'un. « T'attend » l'emporte sur
+ * « terminé » — c'est celui qui demande quelque chose.
  */
-export function shouldChime(
+export function chimeFor(
   before: ReadonlyMap<string, Status> | undefined,
   after: ReadonlyMap<string, Status>,
-): boolean {
-  if (before === undefined) return false;
+): ChimeEvent | undefined {
+  if (before === undefined) return undefined;
+  let found: ChimeEvent | undefined;
   for (const [id, status] of after) {
     const was = before.get(id);
     if (was === undefined || was === status) continue;
-    if (CHIMING.has(status)) return true;
+    const event = EVENT_OF[status];
+    if (event === 'waiting') return 'waiting';
+    if (event !== undefined) found = event;
   }
-  return false;
+  return found;
 }

@@ -4,10 +4,7 @@ import { withStaleness } from '../store/staleness';
 import { sessionDescription, sessionLabel, sessionTooltip, statusLabel } from './labels';
 import { emptyGroups, groupIdOf, reorder, sessionOrderOf, type Group, type GroupsState } from '../groups/model';
 import { themeColorOf } from './colors';
-import { usageColor, usageLabel, usageTooltip } from './usage-label';
-import { soundLabel, soundTooltip } from './sound-label';
 import { decorationUriParts } from './decorations';
-import type { UsageReading } from '../usage/reader';
 
 export type TreeNode =
   // `group: undefined` désigne « Sans dossier », le reliquat des sessions non
@@ -22,33 +19,34 @@ export type TreeNode =
   // La consommation mesurée par Claude Code, en tête de la vue. Absente tant que
   // le pont de statusline n'est pas installé — auquel cas la ligne n'existe pas,
   // plutôt que d'afficher zéro et de laisser croire à une consommation nulle.
-  | { kind: 'usage'; usage: UsageReading | undefined }
-  // Le réglage du son, juste au-dessus de l'usage : deux lignes de pied de vue,
-  // toujours présentes, jamais mêlées aux conversations.
-  | { kind: 'sound'; sound: string }
   // `action` distingue « il faut installer les hooks », cliquable, de « rien à
   // afficher », qui ne doit rien déclencher.
   | { kind: 'empty'; message: string; action?: 'install' };
 
 /**
- * La pastille de chaque statut.
+ * La pastille de chaque statut : UN SEUL glyphe, cinq couleurs.
  *
- * `color` est OBLIGATOIRE, et ce n'est pas une coquetterie : VSCode ne rend pas
- * une icône colorée et une icône sans couleur par le même chemin, et le libellé
- * d'une ligne sans couleur part quelques pixels plus à droite. Une seule pastille
- * incolore suffisait à désaligner toutes les sessions à l'arrêt. Un test garde
- * l'invariant — un commentaire ne l'aurait pas gardé.
+ * Le glyphe est délibérément identique partout. Des glyphes différents —
+ * `check`, `question`, `circle-outline`, `circle-slash` — ne se posaient pas au
+ * même endroit dans la ligne, et le libellé qui les suit héritait du décalage :
+ * les conversations ne s'alignaient pas. Un seul glyphe rend l'alignement vrai
+ * par construction, et non plus par chance.
  *
- * `waiting` ne porte volontairement PAS de triangle d'avertissement : une session
- * qui attend une réponse n'est pas une panne, et le triangle donnait l'impression
- * d'un problème à régler. Un point d'interrogation dit la même chose sans alarmer.
+ * La couleur, elle, reste obligatoire : une icône sans couleur n'est pas rendue
+ * par le même chemin, ce qui décalait déjà les sessions à l'arrêt. Deux
+ * invariants, un seul test pour les garder.
+ *
+ * Ce qu'on perd — la forme du triangle, de la coche — se retrouve dans
+ * l'infobulle et dans le libellé d'accessibilité, qui nomment le statut.
  */
+const STATUS_GLYPH = 'circle-filled';
+
 const ICONS: Record<Status, { id: string; color: string }> = {
-  running: { id: 'circle-filled', color: 'charts.blue' },
-  waiting: { id: 'question', color: 'charts.yellow' },
-  done_unseen: { id: 'check', color: 'charts.green' },
-  idle: { id: 'circle-outline', color: 'descriptionForeground' },
-  stale: { id: 'circle-slash', color: 'disabledForeground' },
+  running: { id: STATUS_GLYPH, color: 'charts.blue' },
+  waiting: { id: STATUS_GLYPH, color: 'charts.yellow' },
+  done_unseen: { id: STATUS_GLYPH, color: 'charts.green' },
+  idle: { id: STATUS_GLYPH, color: 'descriptionForeground' },
+  stale: { id: STATUS_GLYPH, color: 'disabledForeground' },
 };
 
 const ORDER: Record<Status, number> = { waiting: 0, running: 1, done_unseen: 2, idle: 3, stale: 4 };
@@ -105,8 +103,8 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
   readonly onDidChangeTreeData = this.emitter.event;
   private sessions: Session[] = [];
   private groups: GroupsState = emptyGroups();
-  private usage: UsageReading | undefined;
-  private sound = '';
+  // `undefined` = rien n'a encore été affiché : le premier rendu passe toujours.
+  private rendered: string | undefined;
 
   constructor(
     // Reçoit la vérification plutôt que de la posséder : lire settings.json
@@ -132,23 +130,50 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
     this.sessions = [...map.values()]
       .map((s) => withStaleness(s, now))
       .sort((a, b) => ORDER[a.status] - ORDER[b.status] || b.lastEventAt - a.lastEventAt);
-    this.emitter.fire();
-  }
-
-  setUsage(usage: UsageReading | undefined): void {
-    this.usage = usage;
-    this.emitter.fire();
-  }
-
-  setSound(sound: string): void {
-    this.sound = sound;
-    this.emitter.fire();
+    this.refresh();
   }
 
   // La vue affiche le classement, elle ne va pas le chercher : même principe
   // que checkHooksInstalled ci-dessus, pour la même raison de testabilité.
   setGroups(state: GroupsState): void {
     this.groups = state;
+    this.refresh();
+  }
+
+  /**
+   * Ce que la vue affiche RÉELLEMENT, sous forme comparable.
+   *
+   * Pas l'état brut : `lastEventAt` change à chaque événement, mais l'âge
+   * affiché ne bouge qu'au passage d'une minute. Comparer ce qui est rendu, et
+   * non ce qui le produit, est ce qui rend la comparaison utile.
+   */
+  private signature(): string {
+    const now = Date.now();
+    return JSON.stringify([
+      this.sessions.map((s) => [
+        s.id,
+        s.status,
+        sessionLabel(s),
+        sessionDescription(s, now),
+        groupIdOf(this.groups, s.id),
+      ]),
+      this.groups.groups,
+      this.groups.sessionOrder,
+    ]);
+  }
+
+  /**
+   * Ne prévient VSCode que si l'affichage a changé.
+   *
+   * Le rendu tourne toutes les REFRESH_MS et appelle quatre setters : signaler
+   * à chaque fois faisait reconstruire l'arbre deux fois par seconde, ce qui
+   * escamotait l'infobulle sous la souris avant qu'on ait fini de la lire. Un
+   * arbre qui n'a pas changé n'a rien à annoncer.
+   */
+  private refresh(): void {
+    const next = this.signature();
+    if (next === this.rendered) return;
+    this.rendered = next;
     this.emitter.fire();
   }
 
@@ -190,23 +215,14 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
 
   async getChildren(node?: TreeNode): Promise<TreeNode[]> {
     if (node === undefined) {
-      // En pied, et toujours présentes — même sans aucune session : ce sont des
-      // réglages, pas des conversations. Une ligne vide les sépare de la liste
-      // pour qu'on ne les confonde pas avec un dossier.
-      const foot: TreeNode[] = [
-        { kind: 'spacer', after: 'foot' },
-        { kind: 'sound', sound: this.sound },
-        { kind: 'usage', usage: this.usage },
-      ];
       if (this.sessions.length === 0) {
         const installed = await this.checkHooksInstalled();
         if (!installed) {
           return [
             { kind: 'empty', message: 'Hooks non installés — cliquez pour les installer', action: 'install' },
-            ...foot,
           ];
         }
-        return [{ kind: 'empty', message: 'Aucune session Claude Code active' }, ...foot];
+        return [{ kind: 'empty', message: 'Aucune session Claude Code active' }];
       }
       const knownIds = new Set(this.groups.groups.map((g) => g.id));
       const byGroup = new Map<string, Session[]>();
@@ -232,7 +248,7 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
       if (unfiled.length > 0) {
         nodes.push({ kind: 'group', group: undefined, sessions: this.ordered(unfiled, undefined) });
       }
-      return [...withSpacers(nodes), ...foot];
+      return withSpacers(nodes);
     }
     if (node.kind === 'group') return node.sessions.map((session) => ({ kind: 'session', session }));
     return [];
@@ -244,32 +260,6 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
       if (node.action === 'install') {
         item.command = { command: 'kohVibe.installHooks', title: 'Installer' };
       }
-      return item;
-    }
-    if (node.kind === 'sound') {
-      const item = new vscode.TreeItem(soundLabel(node.sound));
-      item.tooltip = soundTooltip(node.sound);
-      item.contextValue = 'sound';
-      item.iconPath = new vscode.ThemeIcon(
-        node.sound === '' ? 'mute' : 'unmute',
-        new vscode.ThemeColor('descriptionForeground'),
-      );
-      item.command = { command: 'kohVibe.chooseSound', title: 'Choisir le son' };
-      return item;
-    }
-    if (node.kind === 'usage') {
-      const now = Date.now();
-      const item = new vscode.TreeItem(usageLabel(node.usage));
-      item.tooltip = usageTooltip(node.usage, now);
-      item.contextValue = 'usage';
-      const color = node.usage === undefined ? undefined : usageColor(node.usage.usage);
-      // Toujours une couleur explicite, comme les pastilles de statut : sans
-      // elle, VSCode rend la ligne par un autre chemin et son libellé se décale.
-      item.iconPath = new vscode.ThemeIcon(
-        'pulse',
-        new vscode.ThemeColor(color ?? 'descriptionForeground'),
-      );
-      item.command = { command: 'kohVibe.refreshUsage', title: 'Rafraîchir la consommation' };
       return item;
     }
     if (node.kind === 'spacer') {

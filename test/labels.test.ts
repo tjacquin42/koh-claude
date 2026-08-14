@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatAge, formatTokens, sessionDescription, sessionLabel, sessionTooltip, statusLabel } from '../src/ui/labels';
+import { formatAge, formatAgeCoarse, formatTokens, sessionDescription, sessionLabel, sessionTooltip, statusLabel } from '../src/ui/labels';
 import type { Session } from '../src/events/types';
 
 const s: Session = {
@@ -82,5 +82,24 @@ describe('labels', () => {
 
   it('garde le statut en toutes lettres dans l infobulle', () => {
     expect(sessionTooltip({ ...s, status: 'waiting' }, 0)).toContain(statusLabel('waiting'));
+  });
+});
+
+describe('formatAgeCoarse', () => {
+  it('reste stable pendant toute la première minute', () => {
+    // C est cette stabilité qui permet à la vue de ne PAS se reconstruire toutes
+    // les deux secondes, et donc à une infobulle de rester ouverte.
+    for (const ms of [0, 1_000, 30_000, 59_999]) {
+      expect(formatAgeCoarse(ms)).toBe("à l'instant");
+    }
+  });
+
+  it('rejoint la précision à la minute au-delà', () => {
+    expect(formatAgeCoarse(60_000)).toBe('1 min');
+    expect(formatAgeCoarse(3_600_000)).toBe('1 h');
+  });
+
+  it('laisse l infobulle garder la précision à la seconde', () => {
+    expect(formatAge(30_000)).toBe('30 s');
   });
 });
