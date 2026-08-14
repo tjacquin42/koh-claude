@@ -2,9 +2,10 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import { kohClaudeHome, spoolDirs } from './paths';
+import { groupsFile, kohClaudeHome, spoolDirs } from './paths';
 import { ensureDirs, readSessions } from './spool/persist';
 import { SpoolWatcher } from './spool/watcher';
+import { pruneAssignmentsAfterPurge } from './groups/purge';
 import type { TranscriptStats } from './transcript/reader';
 import { withTokens } from './transcript/tokens';
 import { SessionsTree } from './ui/tree';
@@ -18,7 +19,9 @@ import { GUARD_TIMEOUT_MS, ReentrantGuard } from './lib/reentrant-guard';
 const REFRESH_MS = 2_000;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  const dirs = spoolDirs(kohClaudeHome());
+  const home = kohClaudeHome();
+  const dirs = spoolDirs(home);
+  const groupsPath = groupsFile(home);
   await ensureDirs(dirs);
 
   // Relu à chaque fois que l'arbre s'apprête à afficher son nœud vide (voir
@@ -86,6 +89,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // doit pas laisser une entrée orpheline dans ce cache en mémoire :
       // sinon la purge sur disque ne borne rien côté mémoire.
       for (const id of res.purged) transcripts.delete(id);
+      // Même principe côté classement en dossiers : l'affectation d'une
+      // session purgée est un déchet sans nettoyage. pruneAssignmentsAfterPurge
+      // n'écrit rien quand res.purged est vide (la quasi-totalité des tours).
+      void pruneAssignmentsAfterPurge(dirs, groupsPath, res.purged).catch(() => undefined);
       void render();
     },
     () => {
