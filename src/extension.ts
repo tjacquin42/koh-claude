@@ -186,7 +186,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return { sound: chosen === NONE_LABEL ? NO_SOUND : chosen };
   }
 
-  const tree = new SessionsTree(checkHooksInstalled, onSessionsDropped);
+  const tree = new SessionsTree(checkHooksInstalled, onSessionsDropped, context.extensionPath);
   const footer = new FooterTree();
   const usageView = new UsageView(() => void vscode.commands.executeCommand('kohVibe.refreshUsage'));
   const status = new StatusSummary();

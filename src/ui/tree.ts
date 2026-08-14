@@ -5,6 +5,7 @@ import { sessionDescription, sessionLabel, sessionTooltip, statusLabel } from '.
 import { emptyGroups, groupIdOf, reorder, sessionOrderOf, type Group, type GroupsState } from '../groups/model';
 import { themeColorOf } from './colors';
 import { decorationUriParts } from './decorations';
+import { statusIconPath } from './status-icon';
 
 export type TreeNode =
   // `group: undefined` désigne « Sans dossier », le reliquat des sessions non
@@ -24,30 +25,21 @@ export type TreeNode =
   | { kind: 'empty'; message: string; action?: 'install' };
 
 /**
- * La pastille de chaque statut : UN SEUL glyphe, cinq couleurs.
+ * La pastille de chaque statut est un disque, identique pour les cinq : seule
+ * la couleur les distingue.
  *
- * Le glyphe est délibérément identique partout. Des glyphes différents —
- * `check`, `question`, `circle-outline`, `circle-slash` — ne se posaient pas au
- * même endroit dans la ligne, et le libellé qui les suit héritait du décalage :
- * les conversations ne s'alignaient pas. Un seul glyphe rend l'alignement vrai
- * par construction, et non plus par chance.
- *
- * La couleur, elle, reste obligatoire : une icône sans couleur n'est pas rendue
- * par le même chemin, ce qui décalait déjà les sessions à l'arrêt. Deux
- * invariants, un seul test pour les garder.
+ * La forme est délibérément la même partout. Des glyphes différents — `check`,
+ * `question`, `circle-outline`, `circle-slash` — ne se posaient pas au même
+ * endroit dans la ligne, et le libellé qui les suit héritait du décalage : les
+ * conversations ne s'alignaient pas. Un disque unique rend l'alignement vrai
+ * par construction, et non plus par chance — et les cinq statuts passant
+ * désormais par le même chemin de rendu (une image), plus rien ne les décale.
  *
  * Ce qu'on perd — la forme du triangle, de la coche — se retrouve dans
  * l'infobulle et dans le libellé d'accessibilité, qui nomment le statut.
+ *
+ * Le choix de l'image contre le codicon coloré est expliqué dans ./status-icon.
  */
-const STATUS_GLYPH = 'circle-filled';
-
-const ICONS: Record<Status, { id: string; color: string }> = {
-  running: { id: STATUS_GLYPH, color: 'charts.blue' },
-  waiting: { id: STATUS_GLYPH, color: 'charts.yellow' },
-  done_unseen: { id: STATUS_GLYPH, color: 'charts.green' },
-  idle: { id: STATUS_GLYPH, color: 'descriptionForeground' },
-  stale: { id: STATUS_GLYPH, color: 'disabledForeground' },
-};
 
 const ORDER: Record<Status, number> = { waiting: 0, running: 1, done_unseen: 2, idle: 3, stale: 4 };
 
@@ -175,6 +167,11 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
       groupId: string | undefined,
       order: readonly string[],
     ) => Promise<void>,
+    // La racine du paquet installé, d'où sont lues les pastilles de statut.
+    // Obligatoire, comme onDrop : une vue câblée sans elle afficherait des
+    // lignes sans aucune icône, et le statut n'est lisible nulle part ailleurs
+    // dans la ligne. Autant que ça ne compile pas.
+    private readonly extensionPath: string,
   ) {}
 
   setSessions(map: Map<string, Session>): void {
@@ -353,8 +350,11 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
     item.tooltip = sessionTooltip(s, now);
     item.contextValue = 'session';
     item.accessibilityInformation = { label: `${sessionLabel(s)}, ${statusLabel(s.status)}` };
-    const icon = ICONS[s.status];
-    item.iconPath = new vscode.ThemeIcon(icon.id, new vscode.ThemeColor(icon.color));
+    // `TreeItem.iconPath` n'accepte QUE des Uri sous cette forme — pas des
+    // chemins. La conversion reste ici pour que statusIconPath() n'ait pas
+    // besoin de l'API de VSCode, et se teste donc sans elle.
+    const pastille = statusIconPath(this.extensionPath, s.status);
+    item.iconPath = { light: vscode.Uri.file(pastille.light), dark: vscode.Uri.file(pastille.dark) };
     // Volontairement AUCUNE couleur sur une session : la teinte du dossier
     // descendue sur ses conversations noyait la lecture, et posait en plus un
     // resourceUri qui décale le libellé. Le dossier porte la couleur, ses
