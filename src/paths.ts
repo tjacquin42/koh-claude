@@ -25,3 +25,8 @@ export function spoolDirs(home: string): SpoolDirs {
     backups: join(home, 'backups'),
   };
 }
+
+/** Fichier partagé du classement en dossiers, à la racine de l'état de koh-claude. */
+export function groupsFile(home: string): string {
+  return join(home, 'groups.json');
+}
