@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   assign, createGroup, deleteGroup, emptyGroups, groupIdOf, parseGroups,
-  pruneAssignments, renameGroup, reorder, serializeGroups, sessionOrderOf, setGroupColor, setSessionOrder, unassign,
+  pruneAssignments, renameGroup, reorder, serializeGroups, sessionOrderOf, setGroupColor,
+  setGroupSound, setSessionOrder, setSessionSound, soundFor, unassign,
 } from '../src/groups/model';
 import type { GroupsState } from '../src/groups/model';
 
@@ -302,5 +303,55 @@ describe('sessionOrder', () => {
   it('rend le même objet quand il n y a rien à retirer', () => {
     const s = setSessionOrder(state(), 'g-1', ['vivante']);
     expect(pruneAssignments(s, new Set(['vivante']))).toBe(s);
+  });
+});
+
+describe('soundFor — trois niveaux de priorité', () => {
+  const state = (): GroupsState =>
+    parseGroups(
+      JSON.stringify({
+        version: 1,
+        groups: [{ id: 'g1', name: 'Dossier', order: 0, sound: 'SonDuDossier' }],
+        assignments: { s1: 'g1' },
+        sessionSounds: { s1: 'SonDeLaConversation' },
+      }),
+    );
+
+  it('la conversation l emporte sur son dossier', () => {
+    expect(soundFor(state(), 's1', 'SonGlobal')).toBe('SonDeLaConversation');
+  });
+
+  it('le dossier l emporte sur le réglage global', () => {
+    expect(soundFor(setSessionSound(state(), 's1', undefined), 's1', 'SonGlobal')).toBe('SonDuDossier');
+  });
+
+  it('le réglage global sert de dernier recours', () => {
+    let s = setSessionSound(state(), 's1', undefined);
+    s = setGroupSound(s, 'g1', undefined);
+    expect(soundFor(s, 's1', 'SonGlobal')).toBe('SonGlobal');
+  });
+
+  it('une session hors dossier retombe directement sur le global', () => {
+    expect(soundFor(state(), 'inconnue', 'SonGlobal')).toBe('SonGlobal');
+  });
+
+  it('un silence choisi ne perce PAS vers le niveau au-dessus', () => {
+    // « Aucun » est un choix explicite : il doit taire la conversation même si
+    // son dossier a un son. Sans ça, on ne pourrait jamais faire taire une seule
+    // conversation d un dossier sonore.
+    expect(soundFor(setSessionSound(state(), 's1', ''), 's1', 'SonGlobal')).toBe('');
+    const muet = setGroupSound(setSessionSound(state(), 's1', undefined), 'g1', '');
+    expect(soundFor(muet, 's1', 'SonGlobal')).toBe('');
+  });
+
+  it('fait le tour du fichier', () => {
+    const relu = parseGroups(serializeGroups(state()));
+    expect(soundFor(relu, 's1', 'SonGlobal')).toBe('SonDeLaConversation');
+    expect(relu.groups[0]?.sound).toBe('SonDuDossier');
+  });
+
+  it('oublie le son d une session qui n existe plus', () => {
+    const pruned = pruneAssignments(state(), new Set());
+    expect(pruned.sessionSounds).toEqual({});
   });
 });

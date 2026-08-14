@@ -65,6 +65,18 @@ function isSessionNode(node: TreeNode): node is Extract<TreeNode, { kind: 'sessi
  * exclu par le `when` du menu (`viewItem == group`), mais défendu ici quand
  * même plutôt que supposé.
  */
+/**
+ * L'identifiant de session ciblé par un menu contextuel. Même prudence que
+ * `groupIdOfNode` : VSCode passe l'élément tel quel, donc n'importe quoi du
+ * point de vue du typage.
+ */
+export function sessionIdOfNode(node: unknown): string | undefined {
+  if (typeof node !== 'object' || node === null) return undefined;
+  const candidate = node as { kind?: unknown; session?: { id?: unknown } };
+  if (candidate.kind !== 'session' || candidate.session === undefined) return undefined;
+  return typeof candidate.session.id === 'string' ? candidate.session.id : undefined;
+}
+
 export function groupIdOfNode(node: unknown): string | undefined {
   if (typeof node !== 'object' || node === null) return undefined;
   const candidate = node as { kind?: unknown; group?: { id?: unknown } };

@@ -1,4 +1,7 @@
-import { assign, createGroup, deleteGroup, renameGroup, setGroupColor, setSessionOrder, unassign } from './model';
+import {
+  assign, createGroup, deleteGroup, renameGroup, setGroupColor, setGroupSound,
+  setSessionOrder, setSessionSound, unassign,
+} from './model';
 import type { GroupsState } from './model';
 import { updateGroups } from './store';
 
@@ -54,6 +57,27 @@ export async function colorGroupCommand(
   color: string | undefined,
 ): Promise<GroupsState> {
   return updateGroups(groupsFilePath, (s) => setGroupColor(s, id, color));
+}
+
+/**
+ * Pose ou retire le son d'un dossier, ou d'une conversation. Même contrat que
+ * `colorGroupCommand` : `undefined` est un choix — « rendre au niveau au-dessus »
+ * — et non une annulation, laquelle doit être distinguée avant d'arriver ici.
+ */
+export async function soundGroupCommand(
+  groupsFilePath: string,
+  id: string,
+  sound: string | undefined,
+): Promise<GroupsState> {
+  return updateGroups(groupsFilePath, (s) => setGroupSound(s, id, sound));
+}
+
+export async function soundSessionCommand(
+  groupsFilePath: string,
+  sessionId: string,
+  sound: string | undefined,
+): Promise<GroupsState> {
+  return updateGroups(groupsFilePath, (s) => setSessionSound(s, sessionId, sound));
 }
 
 /**

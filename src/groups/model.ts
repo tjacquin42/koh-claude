@@ -10,6 +10,11 @@ export interface Group {
    * et une valeur inconnue s'y affiche sans couleur au lieu de casser la vue.
    */
   color?: string;
+  /**
+   * Le son de ce dossier, s'il en a un. Il l'emporte sur le réglage global et
+   * cède devant celui d'une conversation — voir `soundFor`.
+   */
+  sound?: string;
 }
 
 export interface GroupsState {
@@ -25,17 +30,19 @@ export interface GroupsState {
    * refuse tout identifiant vide, donc aucun vrai dossier ne peut la revendiquer.
    */
   sessionOrder: Readonly<Record<string, readonly string[]>>;
+  /** Le son propre à une conversation. Le plus prioritaire des trois niveaux. */
+  sessionSounds: Readonly<Record<string, string>>;
   /** Champs du fichier que nous ne connaissons pas : préservés tels quels à l'écriture. */
   unknown: Readonly<Record<string, unknown>>;
 }
 
-const KNOWN = new Set(['version', 'groups', 'assignments', 'sessionOrder']);
+const KNOWN = new Set(['version', 'groups', 'assignments', 'sessionOrder', 'sessionSounds']);
 
 /** La clé d'ordre de « Sans dossier ». */
 export const UNFILED = '';
 
 export function emptyGroups(): GroupsState {
-  return { groups: [], assignments: {}, sessionOrder: {}, unknown: {} };
+  return { groups: [], assignments: {}, sessionOrder: {}, sessionSounds: {}, unknown: {} };
 }
 
 /** `undefined` (« Sans dossier ») et la chaîne vide désignent le même seau. */
@@ -76,7 +83,11 @@ export function parseGroups(raw: string): GroupsState {
       seenIds.add(id);
       const order = typeof g['order'] === 'number' && Number.isFinite(g['order']) ? g['order'] : i;
       const color = name(g['color']);
-      groups.push(color === undefined ? { id, name: label, order } : { id, name: label, order, color });
+      const sound = name(g['sound']);
+      const group: Group = { id, name: label, order };
+      if (color !== undefined) group.color = color;
+      if (sound !== undefined) group.sound = sound;
+      groups.push(group);
     }
   }
   groups.sort((a, b) => a.order - b.order);
@@ -106,14 +117,22 @@ export function parseGroups(raw: string): GroupsState {
     }
   }
 
+  const sessionSounds: Record<string, string> = {};
+  const rawSounds = root['sessionSounds'];
+  if (isRecord(rawSounds)) {
+    for (const [sessionId, sound] of Object.entries(rawSounds)) {
+      if (typeof sound === 'string' && sound.length > 0) sessionSounds[sessionId] = sound;
+    }
+  }
+
   const unknown: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(root)) if (!KNOWN.has(k)) unknown[k] = v;
 
-  return { groups, assignments, sessionOrder, unknown };
+  return { groups, assignments, sessionOrder, sessionSounds, unknown };
 }
 
 export function serializeGroups(s: GroupsState): string {
-  const body = { ...s.unknown, version: 1, groups: s.groups, assignments: s.assignments, sessionOrder: s.sessionOrder };
+  const body = { ...s.unknown, version: 1, groups: s.groups, assignments: s.assignments, sessionOrder: s.sessionOrder, sessionSounds: s.sessionSounds };
   return `${JSON.stringify(body, null, 2)}\n`;
 }
 
@@ -135,6 +154,38 @@ export function renameGroup(s: GroupsState, id: string, label: string): GroupsSt
  * retirée de l'objet, pour qu'un dossier sans couleur ne laisse pas une clé
  * morte dans le fichier partagé.
  */
+/**
+ * Le son qui s'applique à une conversation, dans l'ordre de priorité voulu :
+ * celui de la conversation, sinon celui de son dossier, sinon le réglage
+ * global. Une chaîne vide à un niveau ne « perce » pas vers le suivant — c'est
+ * un choix explicite de silence, pas une absence de choix.
+ */
+export function soundFor(s: GroupsState, sessionId: string, fallback: string): string {
+  const own = s.sessionSounds[sessionId];
+  if (own !== undefined) return own;
+  const groupId = s.assignments[sessionId];
+  const group = groupId === undefined ? undefined : s.groups.find((g) => g.id === groupId);
+  return group?.sound ?? fallback;
+}
+
+/** `undefined` retire le son propre et rend la conversation à son dossier. */
+export function setSessionSound(s: GroupsState, sessionId: string, sound: string | undefined): GroupsState {
+  const { [sessionId]: _dropped, ...rest } = s.sessionSounds;
+  return { ...s, sessionSounds: sound === undefined ? rest : { ...rest, [sessionId]: sound } };
+}
+
+/** `undefined` retire le son du dossier et le rend au réglage global. */
+export function setGroupSound(s: GroupsState, id: string, sound: string | undefined): GroupsState {
+  return {
+    ...s,
+    groups: s.groups.map((g) => {
+      if (g.id !== id) return g;
+      const { sound: _drop, ...rest } = g;
+      return sound === undefined ? rest : { ...rest, sound };
+    }),
+  };
+}
+
 export function setGroupColor(s: GroupsState, id: string, color: string | undefined): GroupsState {
   return {
     ...s,
@@ -222,6 +273,7 @@ export function reorder(
 
 export function pruneAssignments(s: GroupsState, live: ReadonlySet<string>): GroupsState {
   const kept = Object.entries(s.assignments).filter(([sessionId]) => live.has(sessionId));
+  const soundEntries = Object.entries(s.sessionSounds).filter(([sessionId]) => live.has(sessionId));
   const orderEntries = Object.entries(s.sessionOrder)
     .map(([key, ids]) => [key, ids.filter((id) => live.has(id))] as const)
     .filter(([, ids]) => ids.length > 0);
@@ -231,6 +283,12 @@ export function pruneAssignments(s: GroupsState, live: ReadonlySet<string>): Gro
     orderEntries.every(([key, ids]) => ids.length === (s.sessionOrder[key]?.length ?? -1));
   // Même identité renvoyée quand il n'y a rien à retirer : l'appelant s'en sert
   // pour éviter une écriture inutile (groups/purge.ts).
-  if (assignmentsUnchanged && orderUnchanged) return s;
-  return { ...s, assignments: Object.fromEntries(kept), sessionOrder: Object.fromEntries(orderEntries) };
+  const soundsUnchanged = soundEntries.length === Object.keys(s.sessionSounds).length;
+  if (assignmentsUnchanged && orderUnchanged && soundsUnchanged) return s;
+  return {
+    ...s,
+    assignments: Object.fromEntries(kept),
+    sessionOrder: Object.fromEntries(orderEntries),
+    sessionSounds: Object.fromEntries(soundEntries),
+  };
 }

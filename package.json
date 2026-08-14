@@ -21,6 +21,7 @@
     "views": {
       "koh-vibe": [
         { "id": "kohVibe.sessions", "name": "Sessions", "icon": "resources/island.svg" },
+        { "id": "kohVibe.usage", "name": "Consommation", "type": "webview", "icon": "resources/island.svg" },
         { "id": "kohVibe.settings", "name": "Réglages", "icon": "resources/island.svg" }
       ]
     },
@@ -35,6 +36,10 @@
       { "command": "kohVibe.deleteGroup", "title": "Supprimer le dossier", "category": "Koh-Vibe" },
       { "command": "kohVibe.chooseSound", "title": "Son d'un événement", "category": "Koh-Vibe" },
       { "command": "kohVibe.chooseVolume", "title": "Volume des carillons", "category": "Koh-Vibe" },
+      { "command": "kohVibe.installSounds", "title": "Ajouter des sons à ma bibliothèque", "category": "Koh-Vibe" },
+      { "command": "kohVibe.offerSounds", "title": "Proposer d'ajouter des sons", "category": "Koh-Vibe" },
+      { "command": "kohVibe.soundGroup", "title": "Son du dossier", "category": "Koh-Vibe" },
+      { "command": "kohVibe.soundSession", "title": "Son de cette conversation", "category": "Koh-Vibe" },
       { "command": "kohVibe.refreshUsage", "title": "Rafraîchir la consommation", "category": "Koh-Vibe" }
     ],
     "configuration": {
@@ -67,7 +72,9 @@
       "view/item/context": [
         { "command": "kohVibe.renameGroup", "when": "view == kohVibe.sessions && viewItem == group" },
         { "command": "kohVibe.colorGroup", "when": "view == kohVibe.sessions && viewItem == group" },
-        { "command": "kohVibe.deleteGroup", "when": "view == kohVibe.sessions && viewItem == group" }
+        { "command": "kohVibe.soundGroup", "when": "view == kohVibe.sessions && viewItem == group" },
+        { "command": "kohVibe.deleteGroup", "when": "view == kohVibe.sessions && viewItem == group" },
+        { "command": "kohVibe.soundSession", "when": "view == kohVibe.sessions && viewItem == session" }
       ]
     }
   },

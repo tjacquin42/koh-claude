@@ -14,7 +14,7 @@ import { readdir } from 'node:fs/promises';
 export const SOUND_DIRS = ['/System/Library/Sounds', join(homedir(), 'Library', 'Sounds')];
 
 /** Ce qu'`afplay` sait lire, et qui a un sens comme notification. */
-const PLAYABLE = new Set(['.aiff', '.aif', '.wav', '.m4a', '.mp3', '.caf']);
+const PLAYABLE = new Set(['.aiff', '.aif', '.wav', '.m4a', '.m4r', '.mp3', '.caf']);
 
 /** Ce que vaut « pas de son » dans un réglage : une chaîne vide, pas une absence. */
 export const NO_SOUND = '';

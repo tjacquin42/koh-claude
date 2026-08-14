@@ -1,6 +1,4 @@
 import * as vscode from 'vscode';
-import { usageColor, usageLabel, usageTooltip } from './usage-label';
-import type { UsageReading } from '../usage/reader';
 import { NO_SOUND } from '../sound/player';
 import type { ChimeEvent } from '../sound/model';
 
@@ -20,8 +18,7 @@ export interface SoundSettings {
 
 export type FooterNode =
   | { kind: 'sound'; event: ChimeEvent; name: string }
-  | { kind: 'volume'; volume: number }
-  | { kind: 'usage'; usage: UsageReading | undefined };
+  | { kind: 'volume'; volume: number };
 
 const EVENT_FR: Record<ChimeEvent, string> = {
   waiting: "t'attend",
@@ -40,16 +37,10 @@ export function volumeRowLabel(volume: number): string {
 export class FooterTree implements vscode.TreeDataProvider<FooterNode> {
   private readonly emitter = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this.emitter.event;
-  private usage: UsageReading | undefined;
   private sound: SoundSettings = { waiting: NO_SOUND, done: NO_SOUND, volume: 0.5 };
   // Même règle que l'arbre des sessions : ne rien annoncer quand rien n'a
   // changé, sinon l'infobulle s'escamote sous la souris.
   private rendered: string | undefined;
-
-  setUsage(usage: UsageReading | undefined): void {
-    this.usage = usage;
-    this.refresh();
-  }
 
   setSound(sound: SoundSettings): void {
     this.sound = sound;
@@ -57,10 +48,7 @@ export class FooterTree implements vscode.TreeDataProvider<FooterNode> {
   }
 
   private refresh(): void {
-    const next = JSON.stringify([
-      this.sound,
-      this.usage === undefined ? null : [usageLabel(this.usage), this.usage.source],
-    ]);
+    const next = JSON.stringify(this.sound);
     if (next === this.rendered) return;
     this.rendered = next;
     this.emitter.fire();
@@ -72,7 +60,6 @@ export class FooterTree implements vscode.TreeDataProvider<FooterNode> {
       { kind: 'sound', event: 'waiting', name: this.sound.waiting },
       { kind: 'sound', event: 'done', name: this.sound.done },
       { kind: 'volume', volume: this.sound.volume },
-      { kind: 'usage', usage: this.usage },
     ];
   }
 
@@ -90,19 +77,10 @@ export class FooterTree implements vscode.TreeDataProvider<FooterNode> {
       item.command = { command: 'kohVibe.chooseSound', title: 'Choisir le son', arguments: [node.event] };
       return item;
     }
-    if (node.kind === 'volume') {
-      const item = new vscode.TreeItem(volumeRowLabel(node.volume));
-      item.tooltip = 'Volume des carillons.\nCliquez pour le régler ; chaque pas se fait entendre.';
-      item.iconPath = new vscode.ThemeIcon('megaphone', new vscode.ThemeColor('descriptionForeground'));
-      item.command = { command: 'kohVibe.chooseVolume', title: 'Régler le volume' };
-      return item;
-    }
-    const now = Date.now();
-    const item = new vscode.TreeItem(usageLabel(node.usage));
-    item.tooltip = usageTooltip(node.usage, now);
-    const color = node.usage === undefined ? undefined : usageColor(node.usage.usage);
-    item.iconPath = new vscode.ThemeIcon('pulse', new vscode.ThemeColor(color ?? 'descriptionForeground'));
-    item.command = { command: 'kohVibe.refreshUsage', title: 'Rafraîchir la consommation' };
+    const item = new vscode.TreeItem(volumeRowLabel(node.volume));
+    item.tooltip = 'Volume des carillons.\nCliquez pour le régler ; chaque pas se fait entendre.';
+    item.iconPath = new vscode.ThemeIcon('megaphone', new vscode.ThemeColor('descriptionForeground'));
+    item.command = { command: 'kohVibe.chooseVolume', title: 'Régler le volume' };
     return item;
   }
 

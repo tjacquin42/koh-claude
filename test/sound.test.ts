@@ -19,8 +19,8 @@ const at = (...pairs: Array<[string, Status]>): Map<string, Status> => statusesO
 
 describe('chimeFor', () => {
   it('distingue les deux événements, pour deux sons différents', () => {
-    expect(chimeFor(at(['s1', 'running']), at(['s1', 'waiting']))).toBe('waiting');
-    expect(chimeFor(at(['s1', 'running']), at(['s1', 'done_unseen']))).toBe('done');
+    expect(chimeFor(at(['s1', 'running']), at(['s1', 'waiting']))).toEqual({ event: 'waiting', sessionId: 's1' });
+    expect(chimeFor(at(['s1', 'running']), at(['s1', 'done_unseen']))).toEqual({ event: 'done', sessionId: 's1' });
   });
 
   it('ne sonne pas pour les bascules qui arrivent toutes seules', () => {
@@ -48,8 +48,8 @@ describe('chimeFor', () => {
   it('ne joue qu un son par tour, et « t attend » l emporte', () => {
     // Deux carillons simultanés ne s entendent pas mieux qu un ; celui qui
     // demande quelque chose passe devant celui qui informe.
-    expect(chimeFor(at(['s1', 'running'], ['s2', 'running']), at(['s1', 'done_unseen'], ['s2', 'waiting']))).toBe('waiting');
-    expect(chimeFor(at(['s1', 'running'], ['s2', 'running']), at(['s1', 'waiting'], ['s2', 'done_unseen']))).toBe('waiting');
+    expect(chimeFor(at(['s1', 'running'], ['s2', 'running']), at(['s1', 'done_unseen'], ['s2', 'waiting']))?.event).toBe('waiting');
+    expect(chimeFor(at(['s1', 'running'], ['s2', 'running']), at(['s1', 'waiting'], ['s2', 'done_unseen']))).toEqual({ event: 'waiting', sessionId: 's1' });
   });
 
   it('ignore une session disparue', () => {
@@ -149,8 +149,8 @@ describe('FooterTree — la vue épinglée en bas', () => {
     return f;
   };
 
-  it('expose les trois réglages puis la consommation, dans cet ordre', () => {
-    expect(footer().getChildren().map((n) => n.kind)).toEqual(['sound', 'sound', 'volume', 'usage']);
+  it('expose les trois réglages, et rien d autre — la consommation a sa propre vue', () => {
+    expect(footer().getChildren().map((n) => n.kind)).toEqual(['sound', 'sound', 'volume']);
   });
 
   it('rend chaque ligne cliquable, vers sa propre commande', () => {
@@ -159,7 +159,6 @@ describe('FooterTree — la vue épinglée en bas', () => {
       'kohVibe.chooseSound',
       'kohVibe.chooseSound',
       'kohVibe.chooseVolume',
-      'kohVibe.refreshUsage',
     ]);
   });
 
@@ -192,10 +191,7 @@ describe('FooterTree — la vue épinglée en bas', () => {
     f.onDidChangeTreeData(() => {
       heard += 1;
     });
-    for (let i = 0; i < 5; i++) {
-      f.setSound({ waiting: 'Ping', done: '', volume: 0.5 });
-      f.setUsage(undefined);
-    }
+    for (let i = 0; i < 5; i++) f.setSound({ waiting: 'Ping', done: '', volume: 0.5 });
     expect(heard).toBe(0);
     f.setSound({ waiting: 'Glass', done: '', volume: 0.5 });
     expect(heard).toBe(1);

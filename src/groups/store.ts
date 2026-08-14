@@ -103,6 +103,10 @@ function merge(latestRaw: string | undefined, before: GroupsState, after: Groups
     groups: mergeGroups(latest.groups, before.groups, after.groups),
     assignments: mergeAssignments(latest.assignments, before.assignments, after.assignments),
     sessionOrder: mergeSessionOrder(latest.sessionOrder, before.sessionOrder, after.sessionOrder),
+    // Même règle, même raison que les affectations : régler le son d'UNE
+    // conversation ne doit pas effacer celui qu'une autre fenêtre vient de poser
+    // sur une autre.
+    sessionSounds: mergeAssignments(latest.sessionSounds, before.sessionSounds, after.sessionSounds),
   };
 }
 
@@ -161,7 +165,7 @@ async function readRaw(file: string): Promise<string | undefined> {
 
 /** L'ordre n'en fait pas partie : il est recalculé à la fin de la fusion. */
 function sameAttributes(a: Group, b: Group): boolean {
-  return a.name === b.name && a.color === b.color;
+  return a.name === b.name && a.color === b.color && a.sound === b.sound;
 }
 
 /**
@@ -171,9 +175,11 @@ function sameAttributes(a: Group, b: Group): boolean {
  * pas de clé morte derrière lui.
  */
 function applyEdit(target: Group, edit: Group): Group {
-  const { color: _dropped, ...rest } = target;
+  const { color: _color, sound: _sound, ...rest } = target;
   const merged: Group = { ...rest, name: edit.name };
-  return edit.color === undefined ? merged : { ...merged, color: edit.color };
+  if (edit.color !== undefined) merged.color = edit.color;
+  if (edit.sound !== undefined) merged.sound = edit.sound;
+  return merged;
 }
 
 function mergeGroups(latest: readonly Group[], before: readonly Group[], after: readonly Group[]): Group[] {

@@ -19,6 +19,7 @@ const groups = (state: Partial<GroupsState>): GroupsState => ({
   groups: [],
   assignments: {},
   sessionOrder: {},
+  sessionSounds: {},
   unknown: {},
   ...state,
 });

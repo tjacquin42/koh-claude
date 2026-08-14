@@ -20,8 +20,14 @@ export function statusesOf(sessions: ReadonlyMap<string, Session>): Map<string, 
   return new Map([...sessions].map(([id, s]) => [id, s.status]));
 }
 
+/** Ce qui a basculé, et laquelle : le son se résout ensuite sur cette session. */
+export interface Chime {
+  event: ChimeEvent;
+  sessionId: string;
+}
+
 /**
- * Quel son jouer, s'il y en a un.
+ * Quelle bascule mérite un son, s'il y en a une.
  *
  * `before === undefined` est le PREMIER rendu : tout y ressemble à une
  * transition, et sonner ferait carillonner l'éditeur à chaque ouverture de
@@ -31,22 +37,22 @@ export function statusesOf(sessions: ReadonlyMap<string, Session>): Map<string, 
  * Une session inconnue de `before` mais présente ensuite ne sonne pas non plus :
  * elle vient d'apparaître dans le spool, on ne sait pas d'où elle vient.
  *
- * Un seul son par tour, même si plusieurs sessions basculent : deux carillons
- * simultanés ne s'entendent pas mieux qu'un. « T'attend » l'emporte sur
- * « terminé » — c'est celui qui demande quelque chose.
+ * Une seule bascule retenue par tour, même si plusieurs surviennent : deux
+ * carillons simultanés ne s'entendent pas mieux qu'un. « T'attend » l'emporte
+ * sur « terminé » — c'est celui qui demande quelque chose.
  */
 export function chimeFor(
   before: ReadonlyMap<string, Status> | undefined,
   after: ReadonlyMap<string, Status>,
-): ChimeEvent | undefined {
+): Chime | undefined {
   if (before === undefined) return undefined;
-  let found: ChimeEvent | undefined;
-  for (const [id, status] of after) {
-    const was = before.get(id);
+  let found: Chime | undefined;
+  for (const [sessionId, status] of after) {
+    const was = before.get(sessionId);
     if (was === undefined || was === status) continue;
     const event = EVENT_OF[status];
-    if (event === 'waiting') return 'waiting';
-    if (event !== undefined) found = event;
+    if (event === 'waiting') return { event, sessionId };
+    if (event !== undefined) found ??= { event, sessionId };
   }
   return found;
 }
