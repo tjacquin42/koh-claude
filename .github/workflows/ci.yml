@@ -6,6 +6,7 @@ name: CI
 # outside contributors — which is the opposite of what a public repository wants.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, closed]
   push:
     branches: [main, dev]
 
@@ -19,6 +20,7 @@ permissions:
 
 jobs:
   check:
+    if: github.event.action != 'closed'
     # macOS, not Linux, because that is where this extension actually runs: the
     # hook bridges are zsh scripts, chimes go through `afplay`, and the usage
     # token is read from the system keychain. A Linux runner would be cheaper
@@ -49,3 +51,34 @@ jobs:
       # `vsce` runs `vscode:prepublish`, so this also proves the packaged code
       # is the code in this commit rather than a stale build.
       - run: pnpm package
+
+  # A pull request branch has no reason to outlive its merge. GitHub can do this
+  # natively, but the setting also deletes `dev` when `dev` merges into `main`, and
+  # making `dev` undeletable is a paid feature on private repositories — hence this
+  # job and its explicit list of long-lived branches.
+  delete-merged-branch:
+    if: >-
+      github.event_name == 'pull_request'
+      && github.event.pull_request.merged == true
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && !contains(fromJSON('["dev","main","master"]'), github.event.pull_request.head.ref)
+    # Linux, unlike `check` above: this one only talks to the API, and a macOS
+    # runner bills ten times the minutes to do it.
+    runs-on: ubuntu-latest
+    # Narrower than the workflow-wide `contents: read`, and only for this job.
+    permissions:
+      contents: write
+    steps:
+      - name: Delete the head branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          # Through the environment, never interpolated into `run`: a branch name
+          # is a string somebody else gets to choose.
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          if gh api -X DELETE "repos/$REPO/git/refs/heads/$BRANCH"; then
+            echo "Deleted $BRANCH."
+          else
+            echo "Left $BRANCH alone (already gone, or protected)."
+          fi
