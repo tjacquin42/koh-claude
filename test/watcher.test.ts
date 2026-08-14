@@ -360,7 +360,7 @@ describe('drain — purge des sessions mortes (C1)', () => {
 
 describe('drain — répertoire du spool disparu (M9)', () => {
   it("recrée le spool (ensureDirs) quand il constate que events/ a disparu, plutôt que de rester muet jusqu'au rechargement de la fenêtre", async () => {
-    // Simule `rm -rf ~/.koh-claude` pendant que l'extension tourne.
+    // Simule `rm -rf ~/.koh-vibe` pendant que l'extension tourne.
     rmSync(home, { recursive: true, force: true });
     expect(existsSync(dirs.events)).toBe(false);
 

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // Le tsconfig principal ne couvre que `src` : c'est ce que `tsc` compile vers `out`,
+  // et les tests n'ont rien à y faire. Mais « pas compilé » était devenu « pas vérifié » —
+  // un fixture de test a survécu à un changement de type sans que rien ne le signale.
+  // Ce fichier ne produit rien : il ne fait que passer le typeur sur les deux dossiers.
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": true, "rootDir": "." },
+  // `vitest.config.ts` reste dehors : c'est un module ES, et la base compile en
+  // CommonJS pour l'hôte d'extensions. Le typer ici demanderait un second réglage
+  // de module pour un fichier de configuration de six lignes.
+  "include": ["src", "test"]
+}

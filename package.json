@@ -1,42 +1,84 @@
 {
-  "name": "koh-claude",
-  "displayName": "Koh-Claude",
-  "description": "Tableau de bord des sessions Claude Code",
+  "name": "koh-vibe",
+  "displayName": "Koh-Vibe",
+  "description": "%extension.description%",
   "version": "0.1.0",
   "publisher": "tjacquin42",
-  "private": true,
-  "license": "UNLICENSED",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/tjacquin42/koh-vibe.git" },
+  "bugs": { "url": "https://github.com/tjacquin42/koh-vibe/issues" },
+  "homepage": "https://github.com/tjacquin42/koh-vibe#readme",
   "engines": { "vscode": "^1.94.0", "node": ">=22" },
   "categories": ["Other"],
+  "keywords": ["claude", "claude code", "anthropic", "sessions", "tableau de bord", "dashboard", "hooks"],
+  "icon": "resources/logo.png",
+  "galleryBanner": { "color": "#0A1F28", "theme": "dark" },
+  "packageManager": "pnpm@10.25.0",
+  "l10n": "./l10n",
   "main": "./out/extension.js",
   "activationEvents": ["onStartupFinished"],
   "contributes": {
     "viewsContainers": {
       "activitybar": [
-        { "id": "koh-claude", "title": "Koh-Claude", "icon": "resources/island.svg" }
+        { "id": "koh-vibe", "title": "Koh-Vibe", "icon": "resources/logo-mono.svg" }
       ]
     },
     "views": {
-      "koh-claude": [
-        { "id": "kohClaude.sessions", "name": "Sessions", "icon": "resources/island.svg" }
+      "koh-vibe": [
+        { "id": "kohVibe.sessions", "name": "%view.kohVibe.sessions.name%", "icon": "resources/logo-mono.svg", "initialSize": 20 },
+        { "id": "kohVibe.usage", "name": "%view.kohVibe.usage.name%", "type": "webview", "icon": "resources/logo-mono.svg", "initialSize": 3 },
+        { "id": "kohVibe.settings", "name": "%view.kohVibe.settings.name%", "icon": "resources/logo-mono.svg", "initialSize": 4 }
       ]
     },
     "commands": [
-      { "command": "kohClaude.refresh", "title": "Koh-Claude : rafraîchir", "icon": "$(refresh)" },
-      { "command": "kohClaude.focusSession", "title": "Koh-Claude : aller à la session" },
-      { "command": "kohClaude.installHooks", "title": "Koh-Claude : installer les hooks" },
-      { "command": "kohClaude.uninstallHooks", "title": "Koh-Claude : désinstaller les hooks" }
+      { "command": "kohVibe.refresh", "title": "%command.kohVibe.refresh.title%", "category": "Koh-Vibe", "icon": "$(refresh)" },
+      { "command": "kohVibe.focusSession", "title": "%command.kohVibe.focusSession.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.installHooks", "title": "%command.kohVibe.installHooks.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.uninstallHooks", "title": "%command.kohVibe.uninstallHooks.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.newGroup", "title": "%command.kohVibe.newGroup.title%", "category": "Koh-Vibe", "icon": "$(new-folder)" },
+      { "command": "kohVibe.renameGroup", "title": "%command.kohVibe.renameGroup.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.colorGroup", "title": "%command.kohVibe.colorGroup.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.deleteGroup", "title": "%command.kohVibe.deleteGroup.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.chooseSound", "title": "%command.kohVibe.chooseSound.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.chooseVolume", "title": "%command.kohVibe.chooseVolume.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.installSounds", "title": "%command.kohVibe.installSounds.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.removeSounds", "title": "%command.kohVibe.removeSounds.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.offerSounds", "title": "%command.kohVibe.offerSounds.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.replaySound", "title": "%command.kohVibe.replaySound.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.soundGroup.waiting", "title": "%command.kohVibe.soundGroup.waiting.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.soundGroup.done", "title": "%command.kohVibe.soundGroup.done.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.soundSession.waiting", "title": "%command.kohVibe.soundSession.waiting.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.soundSession.done", "title": "%command.kohVibe.soundSession.done.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.forgetSession", "title": "%command.kohVibe.forgetSession.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.refreshUsage", "title": "%command.kohVibe.refreshUsage.title%", "category": "Koh-Vibe" }
+    ],
+    "keybindings": [
+      { "command": "kohVibe.replaySound", "key": "right", "when": "kohVibe.pickingSound && inQuickOpen" }
     ],
     "menus": {
       "view/title": [
-        { "command": "kohClaude.refresh", "when": "view == kohClaude.sessions", "group": "navigation" }
+        { "command": "kohVibe.refresh", "when": "view == kohVibe.sessions", "group": "navigation" },
+        { "command": "kohVibe.newGroup", "when": "view == kohVibe.sessions", "group": "navigation" }
+      ],
+      "view/item/context": [
+        { "command": "kohVibe.renameGroup", "when": "view == kohVibe.sessions && viewItem == group" },
+        { "command": "kohVibe.colorGroup", "when": "view == kohVibe.sessions && viewItem == group" },
+        { "command": "kohVibe.soundGroup.waiting", "when": "view == kohVibe.sessions && viewItem == group", "group": "son@1" },
+        { "command": "kohVibe.soundGroup.done", "when": "view == kohVibe.sessions && viewItem == group", "group": "son@2" },
+        { "command": "kohVibe.deleteGroup", "when": "view == kohVibe.sessions && viewItem == group", "group": "zzz@1" },
+        { "command": "kohVibe.soundSession.waiting", "when": "view == kohVibe.sessions && viewItem == session", "group": "son@1" },
+        { "command": "kohVibe.soundSession.done", "when": "view == kohVibe.sessions && viewItem == session", "group": "son@2" },
+        { "command": "kohVibe.forgetSession", "when": "view == kohVibe.sessions && viewItem == session", "group": "zzz@1" }
       ]
     }
   },
   "scripts": {
-    "build": "tsc -p .",
+    "vscode:prepublish": "pnpm build",
+    "build": "node scripts/stamp-build.cjs && tsc -p .",
+    "typecheck": "tsc -p tsconfig.test.json",
     "watch": "tsc -w -p .",
-    "test": "vitest run",
+    "test": "pnpm build && vitest run",
+    "test:watch": "vitest",
     "package": "vsce package --no-dependencies"
   },
   "devDependencies": {

@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -35,11 +35,23 @@ function makeBroker(): FocusBroker {
   return b;
 }
 
+/**
+ * Pose les dossiers de l'espace de travail sur le bouchon de `vscode`.
+ *
+ * La vraie API les expose en LECTURE SEULE, et c'est bien contre elle que le
+ * typeur travaille — un bouchon qui divergerait de ses signatures ne prouverait
+ * plus rien. Cette vue étroite dit donc exactement ce qu'on force, et rien de
+ * plus : le jour où l'API changerait de forme, la ligne casserait ici.
+ */
+function setWorkspaceFolders(folders: readonly { uri: { fsPath: string } }[] | undefined): void {
+  (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders = folders;
+}
+
 beforeEach(async () => {
   home = mkdtempSync(join(tmpdir(), 'koh-broker-'));
   dirs = spoolDirs(home);
   await ensureDirs(dirs);
-  vscode.workspace.workspaceFolders = undefined;
+  setWorkspaceFolders(undefined);
   vi.restoreAllMocks();
   brokers = [];
 });
@@ -50,25 +62,38 @@ afterEach(() => {
 });
 
 describe('FocusBroker.request', () => {
-  it('focalise directement la fenêtre courante quand elle revendique la session, sans écrire de requête', async () => {
-    vscode.workspace.workspaceFolders = [{ uri: { fsPath: '/Users/dev/projet' } }];
+  it('révèle le panneau de la session (par son identifiant) quand la fenêtre courante la revendique', async () => {
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
     const executeCommand = vi.spyOn(vscode.commands, 'executeCommand').mockResolvedValue(undefined);
     const broker = makeBroker();
 
-    await broker.request(session());
+    await broker.request(session({ id: 'sess-1' }));
 
-    expect(executeCommand).toHaveBeenCalledWith('claude-vscode.editor.openLast');
+    expect(executeCommand).toHaveBeenCalledWith('claude-vscode.editor.open', 'sess-1');
   });
 
-  it("écrit un fichier de requête portant le libellé de la session (sessionLabel) quand aucune fenêtre ne la revendique", async () => {
+  it("n'exécute aucune commande pour une session terminal revendiquée localement — elle explique à la place", async () => {
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
+    const executeCommand = vi.spyOn(vscode.commands, 'executeCommand').mockResolvedValue(undefined);
+    const showInformationMessage = vi.spyOn(vscode.window, 'showInformationMessage').mockResolvedValue(undefined);
     const broker = makeBroker();
 
-    await broker.request(session({ id: 's-remote', branch: 'feat-x' }));
+    await broker.request(session({ origin: 'terminal' }));
+
+    expect(executeCommand).not.toHaveBeenCalled();
+    expect(showInformationMessage).toHaveBeenCalled();
+  });
+
+  it("écrit un fichier de requête portant le libellé et l'origine de la session quand aucune fenêtre ne la revendique", async () => {
+    const broker = makeBroker();
+
+    await broker.request(session({ id: 's-remote', branch: 'feat-x', origin: 'vscode' }));
 
     const raw = await readFile(join(dirs.requests, 'focus-s-remote.json'), 'utf8');
-    const parsed = JSON.parse(raw) as { sessionId: string; cwd: string; label: string };
+    const parsed = JSON.parse(raw) as { sessionId: string; cwd: string; label: string; origin: string };
     expect(parsed.sessionId).toBe('s-remote');
-    expect(parsed.label).toBe('feat-x'); // sessionLabel() préfère la branche au projet
+    expect(parsed.label).toBe('projet · feat-x'); // sessionLabel() retombe sur projet · branche sans titre
+    expect(parsed.origin).toBe('vscode');
   });
 });
 
@@ -84,21 +109,21 @@ describe('FocusBroker — consommation des requêtes (I3)', () => {
     let focusCalled = false;
     vi.spyOn(vscode.window, 'showInformationMessage').mockImplementation(() => {
       messageCalled = true;
-      return new Promise<string | undefined>(() => undefined);
+      return new Promise<undefined>(() => undefined);
     });
     vi.spyOn(vscode.commands, 'executeCommand').mockImplementation(async () => {
       focusCalled = true;
       return undefined;
     });
-    vscode.workspace.workspaceFolders = [{ uri: { fsPath: '/Users/dev/projet' } }];
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
 
     // La requête est écrite pendant que personne ne revendie encore (dossier
     // vide), pour forcer l'écriture d'un fichier plutôt qu'un focus direct.
-    vscode.workspace.workspaceFolders = undefined;
+    setWorkspaceFolders(undefined);
     const other = makeBroker();
     await other.request(session({ id: 's-cross' }));
 
-    vscode.workspace.workspaceFolders = [{ uri: { fsPath: '/Users/dev/projet' } }];
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
     const broker = makeBroker();
     const internal = broker as unknown as { consume: () => Promise<void> };
     await internal.consume();
@@ -109,16 +134,16 @@ describe('FocusBroker — consommation des requêtes (I3)', () => {
 
   it('nomme la session dans le message plutôt que rester générique (mineur T11)', async () => {
     let message: unknown;
-    vi.spyOn(vscode.window, 'showInformationMessage').mockImplementation((m: unknown) => {
+    vi.spyOn(vscode.window, 'showInformationMessage').mockImplementation((m: string) => {
       message = m;
-      return new Promise<string | undefined>(() => undefined);
+      return new Promise<undefined>(() => undefined);
     });
     vi.spyOn(vscode.commands, 'executeCommand').mockResolvedValue(undefined);
 
     const other = makeBroker();
     await other.request(session({ id: 's-cross', branch: 'feat-x' }));
 
-    vscode.workspace.workspaceFolders = [{ uri: { fsPath: '/Users/dev/projet' } }];
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
     const broker = makeBroker();
     const internal = broker as unknown as { consume: () => Promise<void> };
     await internal.consume();
@@ -134,7 +159,70 @@ describe('FocusBroker — consommation des requêtes (I3)', () => {
     const other = makeBroker();
     await other.request(session({ id: 's-cross' }));
 
-    vscode.workspace.workspaceFolders = [{ uri: { fsPath: '/Users/dev/autre-projet' } }];
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/autre-projet' } }]);
+    const broker = makeBroker();
+    const internal = broker as unknown as { consume: () => Promise<void> };
+    await internal.consume();
+
+    expect(executeCommand).not.toHaveBeenCalled();
+  });
+
+  it('reçoit exactement la commande de révélation, avec l identifiant de session en argument', async () => {
+    vi.spyOn(vscode.window, 'showInformationMessage').mockResolvedValue(undefined);
+    const executeCommand = vi.spyOn(vscode.commands, 'executeCommand').mockResolvedValue(undefined);
+
+    const other = makeBroker();
+    await other.request(session({ id: 'sess-1', origin: 'vscode' }));
+
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
+    const broker = makeBroker();
+    const internal = broker as unknown as { consume: () => Promise<void> };
+    await internal.consume();
+
+    expect(executeCommand).toHaveBeenCalledWith('claude-vscode.editor.open', 'sess-1');
+  });
+
+  it("n'affiche qu'un seul message pour une session distante hors éditeur — l'annonce et l'explication ne doivent pas se contredire", async () => {
+    const showInformationMessage = vi.spyOn(vscode.window, 'showInformationMessage').mockResolvedValue(undefined);
+    vi.spyOn(vscode.commands, 'executeCommand').mockResolvedValue(undefined);
+
+    const other = makeBroker();
+    await other.request(session({ id: 's-term', origin: 'terminal' }));
+
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
+    const broker = makeBroker();
+    const internal = broker as unknown as { consume: () => Promise<void> };
+    await internal.consume();
+
+    expect(showInformationMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("n'exécute aucune commande pour une session terminal consommée à distance", async () => {
+    vi.spyOn(vscode.window, 'showInformationMessage').mockResolvedValue(undefined);
+    const executeCommand = vi.spyOn(vscode.commands, 'executeCommand').mockResolvedValue(undefined);
+
+    const other = makeBroker();
+    await other.request(session({ id: 's-term', origin: 'terminal' }));
+
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
+    const broker = makeBroker();
+    const internal = broker as unknown as { consume: () => Promise<void> };
+    await internal.consume();
+
+    expect(executeCommand).not.toHaveBeenCalled();
+  });
+
+  it("n'exécute aucune commande pour une requête sans champ origin (écrite par une version antérieure)", async () => {
+    vi.spyOn(vscode.window, 'showInformationMessage').mockResolvedValue(undefined);
+    const executeCommand = vi.spyOn(vscode.commands, 'executeCommand').mockResolvedValue(undefined);
+
+    await writeFile(
+      join(dirs.requests, 'focus-s-legacy.json'),
+      JSON.stringify({ sessionId: 's-legacy', cwd: '/Users/dev/projet', label: 'projet · feat-x', at: Date.now() }),
+      'utf8',
+    );
+
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
     const broker = makeBroker();
     const internal = broker as unknown as { consume: () => Promise<void> };
     await internal.consume();

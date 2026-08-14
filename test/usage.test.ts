@@ -1,0 +1,230 @@
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { parseUsage } from '../src/usage/model';
+import { forgetAttempts, readUsage, refreshFromApi, REFRESH_AFTER_MS } from '../src/usage/reader';
+import { accessTokenOf } from '../src/usage/oauth';
+
+const REAL = {
+  rate_limits: {
+    five_hour: { used_percentage: 78, resets_at: 1786297800 },
+    seven_day: { used_percentage: 32, resets_at: 1786712400 },
+  },
+};
+
+describe('parseUsage', () => {
+  it('lit la forme réellement observée dans la statusline', () => {
+    expect(parseUsage(REAL)).toEqual({
+      fiveHour: { percent: 78, resetsAt: 1786297800 },
+      sevenDay: { percent: 32, resetsAt: 1786712400 },
+    });
+  });
+
+  it('accepte une fenêtre sans échéance — le pourcentage vaut à lui seul', () => {
+    expect(parseUsage({ rate_limits: { five_hour: { used_percentage: 5 } } })).toEqual({
+      fiveHour: { percent: 5, resetsAt: undefined },
+      sevenDay: undefined,
+    });
+  });
+
+  it('écarte un pourcentage hors bornes plutôt que d afficher une jauge absurde', () => {
+    for (const bad of [-3, 101, Number.NaN, Number.POSITIVE_INFINITY, '78']) {
+      expect(parseUsage({ rate_limits: { five_hour: { used_percentage: bad } } })).toBeUndefined();
+    }
+  });
+
+  it('garde les bornes exactes', () => {
+    expect(parseUsage({ rate_limits: { five_hour: { used_percentage: 0 } } })?.fiveHour?.percent).toBe(0);
+    expect(parseUsage({ rate_limits: { five_hour: { used_percentage: 100 } } })?.fiveHour?.percent).toBe(100);
+  });
+
+  it('écarte une échéance nulle ou négative sans perdre le pourcentage', () => {
+    const u = parseUsage({ rate_limits: { five_hour: { used_percentage: 10, resets_at: 0 } } });
+    expect(u?.fiveHour).toEqual({ percent: 10, resetsAt: undefined });
+  });
+
+  it('rend undefined quand rien n est exploitable — pas une mesure à zéro', () => {
+    expect(parseUsage({})).toBeUndefined();
+    expect(parseUsage({ rate_limits: {} })).toBeUndefined();
+    expect(parseUsage({ rate_limits: 'nope' })).toBeUndefined();
+    expect(parseUsage(null)).toBeUndefined();
+    expect(parseUsage('{}')).toBeUndefined();
+  });
+});
+
+// La forme réellement rendue par le point d'usage d'Anthropic, telle qu'on la
+// trouve mise en cache sur le disque : `utilization` plutôt que
+// `used_percentage`, et une date ISO plutôt que des secondes Unix.
+const API = {
+  five_hour: { utilization: 13, resets_at: '2026-08-14T20:10:00.000725+00:00', limit_dollars: null },
+  seven_day: { utilization: 3, resets_at: '2026-08-21T13:00:00.000747+00:00' },
+  seven_day_opus: null,
+};
+
+describe('parseUsage — les deux vocabulaires', () => {
+  it('lit `utilization` comme `used_percentage`, et une date ISO comme des secondes', () => {
+    expect(parseUsage(API)).toEqual({
+      fiveHour: { percent: 13, resetsAt: Math.floor(Date.parse('2026-08-14T20:10:00.000725+00:00') / 1000) },
+      sevenDay: { percent: 3, resetsAt: Math.floor(Date.parse('2026-08-21T13:00:00.000747+00:00') / 1000) },
+    });
+  });
+
+  it('ramène l échéance à des SECONDES, jamais des millisecondes', () => {
+    // Une date ISO lue en millisecondes ferait un `resetsAt` mille fois trop
+    // grand, et l infobulle annoncerait une réinitialisation dans 500 000 heures.
+    const u = parseUsage(API)!;
+    expect(u.fiveHour!.resetsAt).toBeLessThan(2_000_000_000);
+  });
+
+  it('ignore une date ISO illisible sans perdre le pourcentage', () => {
+    expect(parseUsage({ five_hour: { utilization: 7, resets_at: 'pas une date' } })?.fiveHour).toEqual({
+      percent: 7,
+      resetsAt: undefined,
+    });
+  });
+});
+
+describe('readUsage', () => {
+  const home = async (): Promise<string> => mkdtemp(join(tmpdir(), 'koh-usage-'));
+
+  it('lit le relevé mis en cache par l appel à l API', async () => {
+    const h = await home();
+    await writeFile(join(h, 'usage.json'), JSON.stringify(API), 'utf8');
+    const r = await readUsage(h);
+    expect(r?.usage.fiveHour?.percent).toBe(13);
+    expect(r?.source).toBe('api');
+  });
+
+  it('lit aussi ce que le pont de statusline a capté', async () => {
+    const h = await home();
+    await writeFile(join(h, 'status.json'), JSON.stringify(REAL), 'utf8');
+    const r = await readUsage(h);
+    expect(r?.usage.fiveHour?.percent).toBe(78);
+    expect(r?.source).toBe('statusline');
+  });
+
+  it('garde la plus FRAÎCHE des deux, jamais une priorité fixe', async () => {
+    const h = await home();
+    await writeFile(join(h, 'usage.json'), JSON.stringify(API), 'utf8');
+    await new Promise((r) => setTimeout(r, 20));
+    await writeFile(join(h, 'status.json'), JSON.stringify(REAL), 'utf8');
+    expect((await readUsage(h))?.source).toBe('statusline');
+
+    await new Promise((r) => setTimeout(r, 20));
+    await writeFile(join(h, 'usage.json'), JSON.stringify(API), 'utf8');
+    expect((await readUsage(h))?.source).toBe('api');
+  });
+
+  it('traite l absence et l illisible comme « pas de mesure », jamais comme une erreur', async () => {
+    const h = await home();
+    expect(await readUsage(h)).toBeUndefined();
+    await writeFile(join(h, 'status.json'), 'pas du JSON', 'utf8');
+    expect(await readUsage(h)).toBeUndefined();
+  });
+});
+
+describe('accessTokenOf', () => {
+  it('extrait le jeton du JSON du trousseau', () => {
+    expect(accessTokenOf(JSON.stringify({ claudeAiOauth: { accessToken: 'abc' } }))).toBe('abc');
+  });
+
+  it('rend undefined sur tout ce qui n est pas la forme attendue', () => {
+    expect(accessTokenOf('pas du JSON')).toBeUndefined();
+    expect(accessTokenOf('{}')).toBeUndefined();
+    expect(accessTokenOf(JSON.stringify({ claudeAiOauth: {} }))).toBeUndefined();
+    expect(accessTokenOf(JSON.stringify({ claudeAiOauth: { accessToken: '' } }))).toBeUndefined();
+    expect(accessTokenOf(JSON.stringify({ claudeAiOauth: { accessToken: 42 } }))).toBeUndefined();
+    expect(accessTokenOf('[]')).toBeUndefined();
+  });
+});
+
+
+describe('refreshFromApi — le rythme', () => {
+  const deps = (opts: { token?: string; payload?: unknown; now?: () => number } = {}) => {
+    const calls = { token: 0, fetch: 0 };
+    return {
+      calls,
+      deps: {
+        readToken: async () => {
+          calls.token += 1;
+          return opts.token;
+        },
+        fetch: async () => {
+          calls.fetch += 1;
+          return opts.payload;
+        },
+        now: opts.now ?? (() => Date.now()),
+      },
+    };
+  };
+
+  beforeEach(() => forgetAttempts());
+
+  it('interroge l API et met le relevé en cache', async () => {
+    const h = await mkdtemp(join(tmpdir(), 'koh-usage-'));
+    const { deps: d, calls } = deps({ token: 'jeton', payload: API });
+    const r = await refreshFromApi(h, false, d);
+    expect(calls.fetch).toBe(1);
+    expect(r?.usage.fiveHour?.percent).toBe(13);
+    // Et le relevé est relisible par une autre fenêtre.
+    expect((await readUsage(h))?.source).toBe('api');
+  });
+
+  it('ne rappelle pas l API tant que le délai n est pas écoulé', async () => {
+    const h = await mkdtemp(join(tmpdir(), 'koh-usage-'));
+    const { deps: d, calls } = deps({ token: 'jeton', payload: API });
+    await refreshFromApi(h, false, d);
+    await refreshFromApi(h, false, d);
+    await refreshFromApi(h, false, d);
+    expect(calls.fetch).toBe(1);
+  });
+
+  it('ne se relance pas en boucle quand l accès au trousseau échoue', async () => {
+    // Le défaut que ce test garde : un échec n écrit aucun fichier, donc rien
+    // qui date. En comptant les succès, le rendu — qui tourne toutes les deux
+    // secondes — relancerait `security` et une requête HTTPS à chaque tour.
+    const h = await mkdtemp(join(tmpdir(), 'koh-usage-'));
+    const { deps: d, calls } = deps({ token: undefined });
+    for (let i = 0; i < 5; i++) await refreshFromApi(h, false, d);
+    expect(calls.token).toBe(1);
+    expect(calls.fetch).toBe(0);
+  });
+
+  it('ne se relance pas en boucle quand l API répond n importe quoi', async () => {
+    const h = await mkdtemp(join(tmpdir(), 'koh-usage-'));
+    const { deps: d, calls } = deps({ token: 'jeton', payload: { erreur: 'nope' } });
+    for (let i = 0; i < 5; i++) await refreshFromApi(h, false, d);
+    expect(calls.fetch).toBe(1);
+  });
+
+  it('rappelle l API une fois le délai écoulé', async () => {
+    const h = await mkdtemp(join(tmpdir(), 'koh-usage-'));
+    // Horloge ancrée sur l heure réelle : le second garde compare `now` à la
+    // date d écriture du fichier, qui vient du système de fichiers. Une horloge
+    // fictive partant de 1970 rendrait ce cache éternellement « frais ».
+    let clock = Date.now();
+    const { deps: d, calls } = deps({ token: 'jeton', payload: API, now: () => clock });
+    await refreshFromApi(h, false, d);
+    clock += REFRESH_AFTER_MS + 1_000;
+    await refreshFromApi(h, false, d);
+    expect(calls.fetch).toBe(2);
+  });
+
+  it('force le rafraîchissement à la demande, sans attendre l échéance', async () => {
+    const h = await mkdtemp(join(tmpdir(), 'koh-usage-'));
+    const { deps: d, calls } = deps({ token: 'jeton', payload: API });
+    await refreshFromApi(h, false, d);
+    await refreshFromApi(h, true, d);
+    expect(calls.fetch).toBe(2);
+  });
+
+  it('garde la mesure précédente quand la nouvelle tentative échoue', async () => {
+    const h = await mkdtemp(join(tmpdir(), 'koh-usage-'));
+    let clock = Date.now();
+    await refreshFromApi(h, false, deps({ token: 'jeton', payload: API, now: () => clock }).deps);
+    clock += REFRESH_AFTER_MS + 1_000;
+    const r = await refreshFromApi(h, false, deps({ token: undefined, now: () => clock }).deps);
+    expect(r?.usage.fiveHour?.percent).toBe(13);
+  });
+});

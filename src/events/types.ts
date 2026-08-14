@@ -38,6 +38,8 @@ export interface Session {
   cwd: string;
   project: string;
   branch?: string;
+  /** Titre de la conversation, lu dans le transcript. Absent tant que Claude n'en a posé aucun. */
+  title?: string;
   origin: Origin;
   status: Status;
   currentAction?: { tool: string; target?: string };

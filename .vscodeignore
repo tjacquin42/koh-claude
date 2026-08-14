@@ -4,7 +4,7 @@
 # besoin à l'exécution est réintégré.
 #
 # Chaque entrée réintégrée doit rester un motif se terminant par un segment à
-# joker (ex. `out/**`) ou un fichier exact (ex. `bin/koh-claude-bridge`), jamais
+# joker (ex. `out/**`) ou un fichier exact (ex. `bin/koh-vibe-bridge`), jamais
 # un nom de dossier nu (`!scripts`) : vsce le développe automatiquement en
 # `scripts/**` et réintègre alors tout le dossier, pas seulement le fichier visé —
 # ce qui aurait ramené bump-version.sh et capture-fixtures.sh dans le paquet.
@@ -12,8 +12,15 @@
 
 !out/**
 !resources/**
-!bin/koh-claude-bridge
+!bin/koh-vibe-bridge
+!bin/koh-vibe-statusline
 !scripts/install-hooks.cjs
+!build-info.json
+!l10n/**
+!package.nls.json
+!package.nls.fr.json
 !package.json
+!LICENSE
 !README.md
+!README.fr.md
 !CHANGELOG.md
