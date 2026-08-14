@@ -124,10 +124,16 @@ Les contributions extérieures sont bienvenues — voir [CONTRIBUTING.fr.md](CON
 ```bash
 pnpm install
 pnpm build       # compile vers out/, et date le paquet depuis le dernier tag
-pnpm test        # 501 tests, sans hôte d'extensions
+pnpm test        # compile, puis lance 501 tests sans hôte d'extensions
+pnpm test:watch  # les mêmes tests, sans recompiler à chaque fois
 pnpm typecheck   # types de src ET de test
 pnpm package     # produit le .vsix
 ```
+
+`pnpm test` compile d'abord, parce que le test de bout en bout lance
+`scripts/install-hooks.cjs`, qui charge l'installateur compilé. Cette dépendance était
+invisible : elle tenait sur une machine ayant déjà construit une fois, et tombait sur un clone
+frais.
 
 Les tests ne démarrent pas VSCode : `vscode` est résolu vers un bouchon
 (`test/stubs/vscode.ts`), ce qui rend l'arbre, les commandes et le pont testables en

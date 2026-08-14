@@ -77,7 +77,8 @@
     "build": "node scripts/stamp-build.cjs && tsc -p .",
     "typecheck": "tsc -p tsconfig.test.json",
     "watch": "tsc -w -p .",
-    "test": "vitest run",
+    "test": "pnpm build && vitest run",
+    "test:watch": "vitest",
     "package": "vsce package --no-dependencies"
   },
   "devDependencies": {

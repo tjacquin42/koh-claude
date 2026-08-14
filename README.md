@@ -116,10 +116,15 @@ Outside contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 ```bash
 pnpm install
 pnpm build       # compiles to out/, and stamps the build from the latest tag
-pnpm test        # 501 tests, no extension host needed
+pnpm test        # builds, then runs 501 tests without an extension host
+pnpm test:watch  # the same tests, without rebuilding on every run
 pnpm typecheck   # types across src AND test
 pnpm package     # produces the .vsix
 ```
+
+`pnpm test` builds first because the end-to-end test runs `scripts/install-hooks.cjs`, which
+loads the compiled installer. That dependency used to be invisible: it held on a machine that
+had built once, and failed on a fresh clone.
 
 Tests do not start VSCode: `vscode` resolves to a stub (`test/stubs/vscode.ts`), which makes
 the tree, the commands and the bridge testable in milliseconds. The type checker, however,
