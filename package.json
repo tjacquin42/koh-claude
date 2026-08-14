@@ -10,6 +10,8 @@
   "homepage": "https://github.com/tjacquin42/koh-vibe#readme",
   "engines": { "vscode": "^1.94.0", "node": ">=22" },
   "categories": ["Other"],
+  "icon": "resources/icon.png",
+  "galleryBanner": { "color": "#0A1F28", "theme": "dark" },
   "main": "./out/extension.js",
   "activationEvents": ["onStartupFinished"],
   "contributes": {
