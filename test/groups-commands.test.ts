@@ -33,7 +33,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 // (SessionsTree.onDrop) ou les trois commandes de dossier (package.json) et
 // le fichier de classement. Chacune est ici exercée directement, sans vscode,
 // sur un fichier jetable — même convention que test/groups-store.test.ts et
-// test/groups-purge.test.ts : jamais le ~/.koh-claude réel.
+// test/groups-purge.test.ts : jamais le ~/.koh-vibe réel.
 let dir: string;
 let file: string;
 

@@ -3,7 +3,8 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import { groupsFile, kohClaudeHome, spoolDirs } from './paths';
+import { groupsFile, kohVibeHome, legacyHome, spoolDirs } from './paths';
+import { migrateLegacyHome } from './store/migrate';
 import { readUsage } from './usage/reader';
 import { ensureDirs, readSessions } from './spool/persist';
 import { SpoolWatcher } from './spool/watcher';
@@ -25,10 +26,19 @@ import { GUARD_TIMEOUT_MS, ReentrantGuard } from './lib/reentrant-guard';
 const REFRESH_MS = 2_000;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  const home = kohClaudeHome();
+  const home = kohVibeHome();
+  // Avant tout le reste : ensureDirs créerait la nouvelle racine et rendrait la
+  // reprise impossible — elle ne s'opère que si cette racine n'existe pas encore.
+  const migrated = await migrateLegacyHome(legacyHome(), home);
   const dirs = spoolDirs(home);
   const groupsPath = groupsFile(home);
   await ensureDirs(dirs);
+  if (migrated === 'migrated') {
+    void vscode.window.showInformationMessage(
+      "Koh-Vibe : l'extension a changé de nom. Vos dossiers et vos sessions ont été repris ; " +
+        'relancez « Installer les hooks » pour que Claude Code pointe vers le nouveau pont.',
+    );
+  }
 
   // Relu à chaque fois que l'arbre s'apprête à afficher son nœud vide (voir
   // SessionsTree), jamais mis en cache ici : le coût (une lecture de fichier)
@@ -60,7 +70,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const broker = new FocusBroker(dirs);
   const transcripts = new Map<string, TranscriptStats>();
 
-  const view = vscode.window.createTreeView('kohClaude.sessions', {
+  const view = vscode.window.createTreeView('kohVibe.sessions', {
     treeDataProvider: tree,
     dragAndDropController: tree,
   });
@@ -94,7 +104,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           if (transcriptFailureWarned) return;
           transcriptFailureWarned = true;
           void vscode.window.showWarningMessage(
-            "Koh-Claude : lecture d'un transcript impossible — cette session s'affiche sans ses compteurs.",
+            "Koh-Vibe : lecture d'un transcript impossible — cette session s'affiche sans ses compteurs.",
           );
         });
         // Relu à chaque rendu, jamais mis en cache : fichier partagé (§3),
@@ -115,7 +125,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (renderFailureWarned) return;
         renderFailureWarned = true;
         void vscode.window.showWarningMessage(
-          'Koh-Claude : le rendu du tableau de bord a échoué — nouvelle tentative automatique.',
+          'Koh-Vibe : le rendu du tableau de bord a échoué — nouvelle tentative automatique.',
         );
       },
     );
@@ -138,7 +148,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (drainFailureWarned) return;
       drainFailureWarned = true;
       void vscode.window.showWarningMessage(
-        'Koh-Claude : la lecture des événements a échoué — nouvelle tentative automatique.',
+        'Koh-Vibe : la lecture des événements a échoué — nouvelle tentative automatique.',
       );
     },
   );
@@ -172,8 +182,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     { dispose: () => watcher.stop() },
     { dispose: () => broker.stop() },
     { dispose: () => clearInterval(ticker) },
-    vscode.commands.registerCommand('kohClaude.refresh', () => void render()),
-    vscode.commands.registerCommand('kohClaude.focusSession', (s: Session) => {
+    vscode.commands.registerCommand('kohVibe.refresh', () => void render()),
+    vscode.commands.registerCommand('kohVibe.focusSession', (s: Session) => {
       // Le clic acquitte inconditionnellement (spec §5 : « clic sur la
       // session »), indépendamment de claims() — qui ne gouverne que
       // l'acquittement passif d'acknowledgeVisibleSessions, ci-dessus.
@@ -181,13 +191,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void acknowledgeClickedSession(dirs, s).catch(() => undefined);
       void broker.request(s).catch(() => undefined);
     }),
-    vscode.commands.registerCommand('kohClaude.installHooks', () => {
-      const terminal = vscode.window.createTerminal('Koh-Claude');
+    vscode.commands.registerCommand('kohVibe.installHooks', () => {
+      const terminal = vscode.window.createTerminal('Koh-Vibe');
       terminal.sendText(`node "${installScript}"`);
       terminal.show();
     }),
-    vscode.commands.registerCommand('kohClaude.uninstallHooks', () => {
-      const terminal = vscode.window.createTerminal('Koh-Claude');
+    vscode.commands.registerCommand('kohVibe.uninstallHooks', () => {
+      const terminal = vscode.window.createTerminal('Koh-Vibe');
       terminal.sendText(`node "${installScript}" --uninstall`);
       terminal.show();
     }),
@@ -195,7 +205,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // (groups/commands.ts) transforme tout ce que la décision lève — en
     // particulier le nom vide, que createGroup/renameGroup rejettent
     // volontairement — en message affiché, jamais en trace d'appel non gérée.
-    vscode.commands.registerCommand('kohClaude.newGroup', async () => {
+    vscode.commands.registerCommand('kohVibe.newGroup', async () => {
       const label = await vscode.window.showInputBox({ prompt: 'Nom du dossier', placeHolder: 'Perso' });
       await runGroupAction(
         () => createGroupCommand(groupsPath, label, () => randomUUID()),
@@ -203,7 +213,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       await render();
     }),
-    vscode.commands.registerCommand('kohClaude.renameGroup', async (node: unknown) => {
+    vscode.commands.registerCommand('kohVibe.renameGroup', async (node: unknown) => {
       const id = groupIdOfNode(node);
       if (id === undefined) return;
       const label = await vscode.window.showInputBox({ prompt: 'Nouveau nom du dossier' });
@@ -213,7 +223,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       await render();
     }),
-    vscode.commands.registerCommand('kohClaude.colorGroup', async (node: unknown) => {
+    vscode.commands.registerCommand('kohVibe.colorGroup', async (node: unknown) => {
       const id = groupIdOfNode(node);
       if (id === undefined) return;
       const pick = await vscode.window.showQuickPick(
@@ -229,7 +239,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       await render();
     }),
-    vscode.commands.registerCommand('kohClaude.deleteGroup', async (node: unknown) => {
+    vscode.commands.registerCommand('kohVibe.deleteGroup', async (node: unknown) => {
       const id = groupIdOfNode(node);
       if (id === undefined) return;
       await runGroupAction(

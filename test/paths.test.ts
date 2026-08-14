@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { groupsFile, kohClaudeHome, spoolDirs } from '../src/paths';
+import { groupsFile, kohVibeHome, spoolDirs } from '../src/paths';
 
 describe('paths', () => {
-  it('utilise KOH_CLAUDE_HOME quand il est posé', () => {
-    expect(kohClaudeHome({ KOH_CLAUDE_HOME: '/tmp/koh' })).toBe('/tmp/koh');
+  it('utilise KOH_VIBE_HOME quand il est posé', () => {
+    expect(kohVibeHome({ KOH_VIBE_HOME: '/tmp/koh' })).toBe('/tmp/koh');
   });
 
-  it('retombe sur ~/.koh-claude', () => {
-    expect(kohClaudeHome({ HOME: '/Users/x' })).toBe('/Users/x/.koh-claude');
+  it('retombe sur ~/.koh-vibe', () => {
+    expect(kohVibeHome({ HOME: '/Users/x' })).toBe('/Users/x/.koh-vibe');
   });
 
   it('dérive les cinq sous-dossiers', () => {

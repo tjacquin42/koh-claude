@@ -11,15 +11,15 @@ import { HOOK_EVENTS } from '../src/events/types';
 
 // Bout en bout : installation des hooks sur une configuration bidon, exécution du
 // vrai bridge pour trois événements d'une même session, réduction par le chemin de
-// production, puis désinstallation. Tout se joue sous un HOME et un KOH_CLAUDE_HOME
+// production, puis désinstallation. Tout se joue sous un HOME et un KOH_VIBE_HOME
 // détournés vers un dossier jetable : rien ne touche ~/.claude/settings.json ni
-// ~/.koh-claude/ réels. Déterministe et isolé par variables d'environnement — au
+// ~/.koh-vibe/ réels. Déterministe et isolé par variables d'environnement — au
 // même titre que test/bridge.test.ts et test/installer.test.ts, ce test a sa place
 // dans la suite plutôt que dans un script à part : aucune dépendance à un état de
 // l'éditeur ou à une temporisation qui le rendrait fragile en CI.
 const REPO_ROOT = process.cwd();
 const SCRIPT = join(REPO_ROOT, 'scripts/install-hooks.cjs');
-const BRIDGE = join(REPO_ROOT, 'bin/koh-claude-bridge');
+const BRIDGE = join(REPO_ROOT, 'bin/koh-vibe-bridge');
 const SESSION_ID = 'e2e-session-1';
 
 const bidonSettings = {
@@ -39,7 +39,7 @@ let settingsPath: string;
 
 function runInstaller(...args: string[]): string {
   return execFileSync(process.execPath, [SCRIPT, ...args], {
-    env: { ...process.env, HOME: fakeHome, KOH_CLAUDE_HOME: kohHome },
+    env: { ...process.env, HOME: fakeHome, KOH_VIBE_HOME: kohHome },
     encoding: 'utf8',
   });
 }
@@ -50,7 +50,7 @@ function runBridge(event: string, payload: Record<string, unknown>): void {
     env: {
       ...process.env,
       HOME: fakeHome,
-      KOH_CLAUDE_HOME: kohHome,
+      KOH_VIBE_HOME: kohHome,
       CLAUDE_CODE_ENTRYPOINT: 'cli',
       TERM_PROGRAM: 'iTerm.app',
     },
@@ -61,7 +61,7 @@ function runBridge(event: string, payload: Record<string, unknown>): void {
 
 beforeEach(async () => {
   fakeHome = mkdtempSync(join(tmpdir(), 'koh-e2e-home-'));
-  kohHome = join(fakeHome, '.koh-claude');
+  kohHome = join(fakeHome, '.koh-vibe');
   dirs = spoolDirs(kohHome);
   projectDir = join(fakeHome, 'mon-projet');
   settingsPath = join(fakeHome, '.claude', 'settings.json');
@@ -82,7 +82,7 @@ describe('bout en bout : installer → bridge → réduction → désinstaller',
   it('installe une copie stable et exécutable du bridge, référencée par les 8 hooks', () => {
     runInstaller();
 
-    const bridgeTarget = join(kohHome, 'bin', 'koh-claude-bridge');
+    const bridgeTarget = join(kohHome, 'bin', 'koh-vibe-bridge');
     const stat = statSync(bridgeTarget);
     expect(stat.isFile()).toBe(true);
     expect(stat.mode & 0o111).not.toBe(0); // au moins un bit d'exécution posé
@@ -105,7 +105,7 @@ describe('bout en bout : installer → bridge → réduction → désinstaller',
 
   it('réinstalle sans se plaindre et écrase la copie du bridge en place', () => {
     runInstaller();
-    const bridgeTarget = join(kohHome, 'bin', 'koh-claude-bridge');
+    const bridgeTarget = join(kohHome, 'bin', 'koh-vibe-bridge');
     const firstRun = statSync(bridgeTarget).mtimeMs;
 
     // Une deuxième copie, même contenu, un peu plus tard : mtime doit avancer,

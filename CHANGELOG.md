@@ -1,4 +1,4 @@
-# Changelog — Koh-Claude
+# Changelog — Koh-Vibe
 
 Toutes les versions livrées. **Une version = une PR mergée sur `main`.**
 

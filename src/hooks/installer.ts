@@ -1,7 +1,25 @@
 import { HOOK_EVENTS } from '../events/types';
 
 /** Marqueur qui rend nos entrées reconnaissables : le nom de fichier de notre bridge. */
-export const KOH_MARKER = 'koh-claude-bridge';
+export const KOH_MARKER = 'koh-vibe-bridge';
+
+/**
+ * L'ancien nom, avant que l'extension ne devienne Koh-Vibe.
+ *
+ * Il DOIT rester reconnu : les entrées posées par une version précédente vivent
+ * encore dans le settings.json de ceux qui l'avaient installée. Ne plus les voir
+ * ne les effacerait pas — elles deviendraient des orphelines qu'aucune
+ * désinstallation ne retire, et une réinstallation poserait un second jeu de
+ * hooks à côté. Chaque événement partirait alors en double dans le spool.
+ *
+ * Reconnu à la désinstallation et au nettoyage, jamais écrit : une installation
+ * neuve ne pose que le nom courant.
+ */
+export const KOH_LEGACY_MARKER = 'koh-claude-bridge';
+
+function isMarker(path: string, marker: string): boolean {
+  return path === marker || path.endsWith(`/${marker}`);
+}
 
 interface HookCommand {
   type: 'command';
@@ -34,7 +52,7 @@ const OUR_COMMAND_RE = new RegExp(
  * Une commande est à nous seulement si elle correspond, au caractère près, au gabarit
  * que nous écrivons nous-mêmes — jamais si elle le contient ou le mentionne en passant.
  * Un test de sous-chaîne classerait comme nôtre une commande étrangère qui enrobe notre
- * bridge (`sh -c 'autre-chose && ~/.koh-claude/bin/koh-claude-bridge'`) : elle serait
+ * bridge (`sh -c 'autre-chose && ~/.koh-vibe/bin/koh-vibe-bridge'`) : elle serait
  * alors supprimée par `installHooks`/`uninstallHooks`, et invisible pour
  * `foreignFingerprint` puisqu'il partage ce même prédicat — les deux garde-fous
  * tomberaient ensemble. La reconnaissance exacte du gabarit referme les deux à la fois.
@@ -48,7 +66,8 @@ function isOurs(h: unknown): boolean {
   const match = OUR_COMMAND_RE.exec(h['command']);
   if (!match) return false;
   const bridgePath = match[1];
-  return bridgePath !== undefined && (bridgePath === KOH_MARKER || bridgePath.endsWith(`/${KOH_MARKER}`));
+  if (bridgePath === undefined) return false;
+  return isMarker(bridgePath, KOH_MARKER) || isMarker(bridgePath, KOH_LEGACY_MARKER);
 }
 
 /**
@@ -209,7 +228,7 @@ export function foreignFingerprint(settings: unknown): string[] {
 }
 
 /** Marqueur qui rend notre entrée de statusline reconnaissable, comme KOH_MARKER pour les hooks. */
-export const KOH_STATUSLINE_MARKER = 'koh-claude-statusline';
+export const KOH_STATUSLINE_MARKER = 'koh-vibe-statusline';
 
 // Le gabarit exact que nous écrivons, et lui seul. Le chemin du pont est capturé
 // une fois et retrouvé par rétro-référence : les deux occurrences ne peuvent pas

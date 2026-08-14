@@ -214,7 +214,7 @@ describe('SessionsTree — deux niveaux : dossiers puis sessions', () => {
   });
 });
 
-// groupIdOfNode : ce que VSCode passe à kohClaude.renameGroup/deleteGroup
+// groupIdOfNode : ce que VSCode passe à kohVibe.renameGroup/deleteGroup
 // depuis le menu contextuel (view/item/context) est l'élément de l'arbre
 // tel quel, jamais un TreeItem — donc n'importe quoi du point de vue du
 // typage TypeScript. Ces tests couvrent la validation sans cast, comme

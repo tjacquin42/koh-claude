@@ -1,4 +1,4 @@
-# Koh-Claude
+# Koh-Vibe
 
 Extension VSCode pour un tableau de bord des sessions Claude Code.
 

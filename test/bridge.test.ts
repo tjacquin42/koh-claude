@@ -4,13 +4,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-const BRIDGE = join(process.cwd(), 'bin/koh-claude-bridge');
+const BRIDGE = join(process.cwd(), 'bin/koh-vibe-bridge');
 let home: string;
 
 function run(event: string, stdin: string, env: Record<string, string> = {}): number {
   const res = execFileSync(BRIDGE, [event], {
     input: stdin,
-    env: { ...process.env, KOH_CLAUDE_HOME: home, ...env },
+    env: { ...process.env, KOH_VIBE_HOME: home, ...env },
     encoding: 'utf8',
   });
   expect(res).toBe(''); // rien sur stdout, jamais
@@ -25,7 +25,7 @@ afterEach(() => {
   rmSync(home, { recursive: true, force: true });
 });
 
-describe('koh-claude-bridge', () => {
+describe('koh-vibe-bridge', () => {
   it('dépose un fichier par événement, payload intact', () => {
     mkdirSync(join(home, 'events'), { recursive: true });
     run('PreToolUse', '{"session_id":"abc","cwd":"/tmp/p","tool_name":"Bash"}', {
@@ -83,7 +83,7 @@ describe('koh-claude-bridge', () => {
     chmodSync(events, 0o500);
     const res = spawnSync(BRIDGE, ['Stop'], {
       input: '{"session_id":"abc","cwd":"/tmp/p"}',
-      env: { ...process.env, KOH_CLAUDE_HOME: home },
+      env: { ...process.env, KOH_VIBE_HOME: home },
       encoding: 'utf8',
     });
     chmodSync(events, 0o700);

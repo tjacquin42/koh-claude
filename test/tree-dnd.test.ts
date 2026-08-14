@@ -9,7 +9,7 @@ import type { Session } from '../src/events/types';
 // ici en dur (plutôt qu'importé) parce que la valeur exacte fait partie du
 // contrat public de la vue — un test qui l'importerait ne le vérifierait
 // plus.
-const MIME = 'application/vnd.code.tree.kohclaude.sessions';
+const MIME = 'application/vnd.code.tree.kohvibe.sessions';
 
 const session = (id: string): Session => ({
   id,

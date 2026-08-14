@@ -26,7 +26,7 @@ export function focusPlan(sessionId: string, origin: unknown, label: string): Fo
   const suffix = typeof origin === 'string' && origin.length > 0 ? ` (${origin})` : '';
   return {
     kind: 'explain',
-    message: `Koh-Claude : la session « ${label} » tourne hors de l'éditeur${suffix} — rien à ouvrir ici.`,
+    message: `Koh-Vibe : la session « ${label} » tourne hors de l'éditeur${suffix} — rien à ouvrir ici.`,
   };
 }
 

@@ -5,7 +5,7 @@ import {
   wrappedStatusLine,
 } from '../src/hooks/installer';
 
-const BRIDGE = '/Users/dev/.koh-claude/bin/koh-claude-statusline';
+const BRIDGE = '/Users/dev/.koh-vibe/bin/koh-vibe-statusline';
 const FOREIGN = '/Users/dev/.vibe-island/bin/vibe-island-statusline';
 
 const commandOf = (settings: unknown): string | undefined =>

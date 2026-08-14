@@ -45,7 +45,7 @@ describe('labels', () => {
   });
 
   it('affiche le titre de la conversation quand il existe', () => {
-    expect(sessionLabel({ ...s, title: '#Koh-Claude' })).toBe('#Koh-Claude');
+    expect(sessionLabel({ ...s, title: '#Koh-Vibe' })).toBe('#Koh-Vibe');
   });
 
   it('retombe sur projet · branche sans titre', () => {
@@ -53,7 +53,7 @@ describe('labels', () => {
   });
 
   it('le projet reste lisible dans la description quand un titre occupe le libellé', () => {
-    const d = sessionDescription({ ...s, title: '#Koh-Claude', currentAction: undefined }, s.lastEventAt);
+    const d = sessionDescription({ ...s, title: '#Koh-Vibe', currentAction: undefined }, s.lastEventAt);
     expect(d).toContain('projet');
   });
 

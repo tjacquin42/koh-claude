@@ -41,7 +41,7 @@ function isSessionNode(node: TreeNode): node is Extract<TreeNode, { kind: 'sessi
 
 /**
  * Retrouve l'identifiant du dossier ciblé par un menu contextuel
- * (kohClaude.renameGroup, kohClaude.deleteGroup) : pour une commande de
+ * (kohVibe.renameGroup, kohVibe.deleteGroup) : pour une commande de
  * `view/item/context`, VSCode passe l'élément de l'arbre tel quel — jamais un
  * `TreeItem` — donc potentiellement n'importe quoi du point de vue du
  * typage. Validé sans cast, comme `handleDrop` : seul un nœud de dossier
@@ -79,7 +79,7 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
   // Type MIME qui nous est propre : c'est lui qui distingue un dépôt venu de
   // cet arbre (dont on connaît le format du contenu) d'un dépôt venu
   // d'ailleurs (un autre arbre, l'OS) — voir handleDrop.
-  private static readonly MIME = 'application/vnd.code.tree.kohclaude.sessions';
+  private static readonly MIME = 'application/vnd.code.tree.kohvibe.sessions';
   readonly dropMimeTypes = [SessionsTree.MIME];
   readonly dragMimeTypes = [SessionsTree.MIME];
 
@@ -214,7 +214,7 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
     if (node.kind === 'empty') {
       const item = new vscode.TreeItem(node.message);
       if (node.action === 'install') {
-        item.command = { command: 'kohClaude.installHooks', title: 'Installer' };
+        item.command = { command: 'kohVibe.installHooks', title: 'Installer' };
       }
       return item;
     }
@@ -261,7 +261,7 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
       icon.id,
       icon.color === undefined ? undefined : new vscode.ThemeColor(icon.color),
     );
-    item.command = { command: 'kohClaude.focusSession', title: 'Aller à la session', arguments: [s] };
+    item.command = { command: 'kohVibe.focusSession', title: 'Aller à la session', arguments: [s] };
     return item;
   }
 

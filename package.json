@@ -1,13 +1,13 @@
 {
-  "name": "koh-claude",
-  "displayName": "Koh-Claude",
+  "name": "koh-vibe",
+  "displayName": "Koh-Vibe",
   "description": "Tableau de bord des sessions Claude Code",
   "version": "0.1.0",
   "publisher": "tjacquin42",
   "license": "MIT",
-  "repository": { "type": "git", "url": "https://github.com/tjacquin42/koh-claude.git" },
-  "bugs": { "url": "https://github.com/tjacquin42/koh-claude/issues" },
-  "homepage": "https://github.com/tjacquin42/koh-claude#readme",
+  "repository": { "type": "git", "url": "https://github.com/tjacquin42/koh-vibe.git" },
+  "bugs": { "url": "https://github.com/tjacquin42/koh-vibe/issues" },
+  "homepage": "https://github.com/tjacquin42/koh-vibe#readme",
   "engines": { "vscode": "^1.94.0", "node": ">=22" },
   "categories": ["Other"],
   "main": "./out/extension.js",
@@ -15,33 +15,33 @@
   "contributes": {
     "viewsContainers": {
       "activitybar": [
-        { "id": "koh-claude", "title": "Koh-Claude", "icon": "resources/island.svg" }
+        { "id": "koh-vibe", "title": "Koh-Vibe", "icon": "resources/island.svg" }
       ]
     },
     "views": {
-      "koh-claude": [
-        { "id": "kohClaude.sessions", "name": "Sessions", "icon": "resources/island.svg" }
+      "koh-vibe": [
+        { "id": "kohVibe.sessions", "name": "Sessions", "icon": "resources/island.svg" }
       ]
     },
     "commands": [
-      { "command": "kohClaude.refresh", "title": "Rafraîchir", "category": "Koh-Claude", "icon": "$(refresh)" },
-      { "command": "kohClaude.focusSession", "title": "Aller à la session", "category": "Koh-Claude" },
-      { "command": "kohClaude.installHooks", "title": "Installer les hooks", "category": "Koh-Claude" },
-      { "command": "kohClaude.uninstallHooks", "title": "Désinstaller les hooks", "category": "Koh-Claude" },
-      { "command": "kohClaude.newGroup", "title": "Créer un dossier", "category": "Koh-Claude", "icon": "$(new-folder)" },
-      { "command": "kohClaude.renameGroup", "title": "Renommer le dossier", "category": "Koh-Claude" },
-      { "command": "kohClaude.colorGroup", "title": "Couleur du dossier", "category": "Koh-Claude" },
-      { "command": "kohClaude.deleteGroup", "title": "Supprimer le dossier", "category": "Koh-Claude" }
+      { "command": "kohVibe.refresh", "title": "Rafraîchir", "category": "Koh-Vibe", "icon": "$(refresh)" },
+      { "command": "kohVibe.focusSession", "title": "Aller à la session", "category": "Koh-Vibe" },
+      { "command": "kohVibe.installHooks", "title": "Installer les hooks", "category": "Koh-Vibe" },
+      { "command": "kohVibe.uninstallHooks", "title": "Désinstaller les hooks", "category": "Koh-Vibe" },
+      { "command": "kohVibe.newGroup", "title": "Créer un dossier", "category": "Koh-Vibe", "icon": "$(new-folder)" },
+      { "command": "kohVibe.renameGroup", "title": "Renommer le dossier", "category": "Koh-Vibe" },
+      { "command": "kohVibe.colorGroup", "title": "Couleur du dossier", "category": "Koh-Vibe" },
+      { "command": "kohVibe.deleteGroup", "title": "Supprimer le dossier", "category": "Koh-Vibe" }
     ],
     "menus": {
       "view/title": [
-        { "command": "kohClaude.refresh", "when": "view == kohClaude.sessions", "group": "navigation" },
-        { "command": "kohClaude.newGroup", "when": "view == kohClaude.sessions", "group": "navigation" }
+        { "command": "kohVibe.refresh", "when": "view == kohVibe.sessions", "group": "navigation" },
+        { "command": "kohVibe.newGroup", "when": "view == kohVibe.sessions", "group": "navigation" }
       ],
       "view/item/context": [
-        { "command": "kohClaude.renameGroup", "when": "view == kohClaude.sessions && viewItem == group" },
-        { "command": "kohClaude.colorGroup", "when": "view == kohClaude.sessions && viewItem == group" },
-        { "command": "kohClaude.deleteGroup", "when": "view == kohClaude.sessions && viewItem == group" }
+        { "command": "kohVibe.renameGroup", "when": "view == kohVibe.sessions && viewItem == group" },
+        { "command": "kohVibe.colorGroup", "when": "view == kohVibe.sessions && viewItem == group" },
+        { "command": "kohVibe.deleteGroup", "when": "view == kohVibe.sessions && viewItem == group" }
       ]
     }
   },

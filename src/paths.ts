@@ -8,9 +8,22 @@ export interface SpoolDirs {
   backups: string;
 }
 
-/** Racine de l'état de koh-claude. `KOH_CLAUDE_HOME` permet de l'isoler en test. */
-export function kohClaudeHome(env: NodeJS.ProcessEnv = process.env): string {
-  const override = env['KOH_CLAUDE_HOME'];
+/** Racine de l'état de koh-vibe. `KOH_VIBE_HOME` permet de l'isoler en test. */
+export function kohVibeHome(env: NodeJS.ProcessEnv = process.env): string {
+  const override = env['KOH_VIBE_HOME'];
+  if (override !== undefined && override.length > 0) return override;
+  return join(env['HOME'] ?? '', '.koh-vibe');
+}
+
+/**
+ * L'ancien emplacement de l'état, avant que l'extension ne devienne Koh-Vibe.
+ *
+ * Suit le MÊME réglage d'isolation que `kohVibeHome` : sans ça, un test qui
+ * redirige la racine verrait quand même le vrai `~/.koh-claude` de la machine,
+ * et la migration s'exercerait sur les sessions réelles de l'utilisateur.
+ */
+export function legacyHome(env: NodeJS.ProcessEnv = process.env): string {
+  const override = env['KOH_VIBE_LEGACY_HOME'];
   if (override !== undefined && override.length > 0) return override;
   return join(env['HOME'] ?? '', '.koh-claude');
 }
@@ -36,7 +49,7 @@ export function statusFile(home: string): string {
   return join(home, 'status.json');
 }
 
-/** Fichier partagé du classement en dossiers, à la racine de l'état de koh-claude. */
+/** Fichier partagé du classement en dossiers, à la racine de l'état de koh-vibe. */
 export function groupsFile(home: string): string {
   return join(home, 'groups.json');
 }

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-const BRIDGE = join(process.cwd(), 'bin/koh-claude-statusline');
+const BRIDGE = join(process.cwd(), 'bin/koh-vibe-statusline');
 const PAYLOAD = '{"rate_limits":{"five_hour":{"used_percentage":78,"resets_at":1786297800}}}';
 
 let home: string;
@@ -14,7 +14,7 @@ const b64 = (s: string): string => Buffer.from(s, 'utf8').toString('base64');
 function run(stdin: string, arg?: string): string {
   return execFileSync(BRIDGE, arg === undefined ? [] : [arg], {
     input: stdin,
-    env: { ...process.env, KOH_CLAUDE_HOME: home },
+    env: { ...process.env, KOH_VIBE_HOME: home },
     encoding: 'utf8',
   });
 }
@@ -27,7 +27,7 @@ afterEach(() => {
   rmSync(home, { recursive: true, force: true });
 });
 
-describe('koh-claude-statusline', () => {
+describe('koh-vibe-statusline', () => {
   it('dépose l instantané tel quel, sans l interpréter', () => {
     expect(run(PAYLOAD)).toBe('');
     expect(readFileSync(join(home, 'status.json'), 'utf8')).toBe(PAYLOAD);

@@ -91,7 +91,7 @@ export class FocusBroker {
       if (this.warnedMissingCommand) return;
       this.warnedMissingCommand = true;
       void vscode.window.showWarningMessage(
-        "Koh-Claude : l'extension Claude Code n'expose pas de commande de focus dans cette version.",
+        "Koh-Vibe : l'extension Claude Code n'expose pas de commande de focus dans cette version.",
       );
     }
   }
@@ -132,7 +132,7 @@ export class FocusBroker {
         if (this.consumeFailureWarned) return;
         this.consumeFailureWarned = true;
         void vscode.window.showWarningMessage(
-          'Koh-Claude : la consommation des requêtes de focus a échoué — nouvelle tentative automatique.',
+          'Koh-Vibe : la consommation des requêtes de focus a échoué — nouvelle tentative automatique.',
         );
       },
     );
@@ -180,7 +180,7 @@ export class FocusBroker {
         // focus est le geste central du clic (spec §6) ; le message n'est
         // qu'une information, il ne doit jamais le retarder.
         if (plan.kind === 'command') {
-          void vscode.window.showInformationMessage(`Koh-Claude : session « ${label} » demandée`);
+          void vscode.window.showInformationMessage(`Koh-Vibe : session « ${label} » demandée`);
         }
         await this.focusSession(plan);
       } catch {

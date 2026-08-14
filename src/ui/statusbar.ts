@@ -7,8 +7,8 @@ export class StatusSummary {
 
   constructor() {
     this.item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
-    this.item.command = 'kohClaude.sessions.focus';
-    this.item.name = 'Koh-Claude';
+    this.item.command = 'kohVibe.sessions.focus';
+    this.item.name = 'Koh-Vibe';
   }
 
   update(map: Map<string, Session>): void {
@@ -28,7 +28,7 @@ export class StatusSummary {
     if (running > 0) parts.push(`$(circle-filled) ${running}`);
     if (done > 0) parts.push(`$(check) ${done}`);
     this.item.text = parts.length > 0 ? parts.join(' · ') : `$(circle-outline) ${sessions.length}`;
-    this.item.tooltip = `Koh-Claude — ${sessions.length} session${sessions.length > 1 ? 's' : ''}`;
+    this.item.tooltip = `Koh-Vibe — ${sessions.length} session${sessions.length > 1 ? 's' : ''}`;
     this.item.backgroundColor =
       waiting > 0 ? new vscode.ThemeColor('statusBarItem.warningBackground') : undefined;
     this.item.show();

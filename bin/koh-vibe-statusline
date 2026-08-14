@@ -1,5 +1,5 @@
 #!/bin/zsh -f
-# koh-claude-statusline — capte l'instantané de la statusline Claude Code, puis
+# koh-vibe-statusline — capte l'instantané de la statusline Claude Code, puis
 # délègue à la commande qui occupait la place avant nous.
 #
 # Claude Code n'offre qu'UN emplacement de statusline. La prendre sans rendre la
@@ -18,7 +18,7 @@ emulate -L zsh
 # perturber la session qui l'appelle.
 exec 2>/dev/null
 
-DIR="${KOH_CLAUDE_HOME:-$HOME/.koh-claude}"
+DIR="${KOH_VIBE_HOME:-$HOME/.koh-vibe}"
 INPUT="$(/bin/cat)"
 
 # L'instantané complet, tel quel : l'extension le lit et le valide, le pont ne
