@@ -2,9 +2,32 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { assign, createGroup, deleteGroup, emptyGroups, parseGroups, serializeGroups } from '../src/groups/model';
 import { readGroups, updateGroups } from '../src/groups/store';
+
+// `node:fs/promises` est un module natif, mocké entièrement en délégant à l'implémentation
+// réelle sauf quand un test arme `readFileOverride` — même convention que test/watcher.test.ts.
+// Sert à injecter un point d'entrelacement PILOTÉ (jamais chronométré) : une écriture d'une
+// autre fenêtre déclenchée depuis l'intérieur d'un appel précis à `readFile`, plutôt qu'une
+// course espérée avec des délais.
+const { readFileOverride } = vi.hoisted(() => ({
+  readFileOverride: { current: undefined as ((path: string) => Promise<string> | undefined) | undefined },
+}));
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    readFile: (
+      path: Parameters<typeof actual.readFile>[0],
+      encoding?: Parameters<typeof actual.readFile>[1],
+    ) => {
+      const override = readFileOverride.current?.(String(path));
+      return override !== undefined ? override : actual.readFile(path, encoding);
+    },
+  };
+});
 
 let dir: string;
 let file: string;
@@ -16,6 +39,7 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
+  readFileOverride.current = undefined;
 });
 
 describe('groups store', () => {
@@ -83,19 +107,43 @@ describe('groups store', () => {
     expect(written.futur).toBe(42);
   });
 
-  // Désactivé volontairement, PAS un oubli : ce test (verbatim du brief) échoue de façon
-  // reproductible contre l'implémentation de référence — pas « une fois sur deux », mesuré à
-  // 0/30 sur un fichier absent et 0/30 sur un fichier déjà peuplé (le seed survit toujours,
-  // mais un des deux dossiers concurrents disparaît systématiquement). Rejoué à la main : ce
-  // n'est PAS un défaut de mergeGroups/mergeAssignments — les trois tests ci-dessus prouvent
-  // qu'ils fusionnent correctement dès qu'on leur donne un instantané `latest` cohérent. Le
-  // trou est dans updateGroups lui-même : il ne relit `latest` qu'UNE fois avant d'écrire, sans
-  // jamais vérifier que le fichier n'a pas encore changé entre cette lecture et le `rename`. Si
-  // deux appels font tous les deux cette lecture avant que l'un des deux ait renommé, le second
-  // à écrire efface silencieusement l'autre — aucune fusion ne peut réparer ça après coup,
-  // seule une vérification/relecture au moment d'écrire (ou un verrou) le peut, et je n'ai pas
-  // improvisé cette pièce : voir task-5-report.md.
-  it.skip('deux mises à jour concurrentes ne se perdent pas', async () => {
+  // Tour de correction 1 (mécanisme 2) : une écriture externe qui survient exactement entre
+  // notre fusion (le contenu qu'on vient de lire comme `latest`) et notre `rename` doit être
+  // absorbée par une nouvelle tentative plutôt qu'écrasée. Point d'entrelacement piloté : le
+  // 3ᵉ appel à `readFile` sur ce fichier — c'est la relecture de contrôle faite juste avant de
+  // renommer, à la fin de la première tentative — déclenche une écriture réelle avant de
+  // rendre la main, simulant une autre fenêtre qui écrit à cet instant précis.
+  it('une écriture externe entre la fusion et le renommage est absorbée par une nouvelle tentative', async () => {
+    await updateGroups(file, (s) => createGroup(s, 'base', () => 'g-base'));
+
+    let calls = 0;
+    readFileOverride.current = (path) => {
+      if (!path.endsWith('groups.json') || (calls += 1) !== 3) return undefined;
+      return (async () => {
+        const current = await readFile(path, 'utf8');
+        await writeFile(
+          path,
+          serializeGroups(createGroup(parseGroups(current), 'ailleurs', () => 'g-else')),
+          'utf8',
+        );
+        return readFile(path, 'utf8');
+      })();
+    };
+
+    const out = await updateGroups(file, (s) => createGroup(s, 'mine', () => 'g-mine'));
+
+    expect(out.groups.map((g) => g.name).sort()).toEqual(['ailleurs', 'base', 'mine']);
+  });
+
+  // Tour de correction 1 (mécanisme 1) : réactivé. Ce test (verbatim du brief) échouait de
+  // façon reproductible contre la première implémentation — mesuré à 0/30 (voir l'historique de
+  // ce fichier et task-5-report.md). Ce n'était pas un défaut de mergeGroups/mergeAssignments
+  // (les tests ci-dessus prouvent qu'ils fusionnent correctement dès qu'on leur donne un
+  // instantané `latest` cohérent), mais l'absence de toute garantie que deux appels à
+  // `updateGroups` sur le même fichier, lancés depuis le même processus, ne s'exécutent jamais
+  // en même temps. `updateGroups` sérialise maintenant ces appels par fichier (`enqueue`) :
+  // exactement le cas que `Promise.all` exerce ici.
+  it('deux mises à jour concurrentes ne se perdent pas', async () => {
     await Promise.all([
       updateGroups(file, (s) => createGroup(s, 'a', () => 'ga')),
       updateGroups(file, (s) => createGroup(s, 'b', () => 'gb')),
