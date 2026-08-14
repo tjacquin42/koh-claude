@@ -6,7 +6,7 @@ import * as vscode from 'vscode';
 import type { SpoolDirs } from '../paths';
 import type { Session } from '../events/types';
 import { claims } from './claims';
-import { focusPlanFor, type FocusPlan } from './plan';
+import { focusPlan, focusPlanFor, type FocusPlan } from './plan';
 import { sessionLabel } from '../ui/labels';
 import { GUARD_TIMEOUT_MS, ReentrantGuard } from '../lib/reentrant-guard';
 
@@ -165,21 +165,23 @@ export class FocusBroker {
         const rawLabel = (parsed as { label?: unknown }).label;
         const label = typeof rawLabel === 'string' && rawLabel.length > 0 ? rawLabel : 'session';
         const sessionId = (parsed as { sessionId?: unknown }).sessionId;
-        const origin = (parsed as { origin?: unknown }).origin;
         if (typeof sessionId !== 'string' || sessionId.length === 0) continue;
         // Cette fenêtre n'a que ce que la requête porte, pas l'objet Session :
-        // le plan se reconstitue depuis `origin`, jamais deviné. Une requête
-        // écrite par une version antérieure n'a pas ce champ et tombe donc sur
-        // `explain` — le comportement sûr, pas un repli sur l'ancienne commande.
-        const plan: FocusPlan =
-          origin === 'vscode' || origin === 'desktop'
-            ? { kind: 'command', command: 'claude-vscode.editor.open', args: [sessionId] }
-            : { kind: 'explain', message: `Koh-Claude : la session « ${label} » tourne hors de l'éditeur.` };
+        // le plan se reconstitue via `focusPlan`, la même règle que le chemin
+        // local (`focusPlanFor`), jamais une copie qui pourrait diverger.
+        const origin = (parsed as { origin?: unknown }).origin;
+        const plan = focusPlan(sessionId, origin, label);
+        // Une seule annonce, jamais deux qui se contrediraient : « demandée »
+        // devant une commande qui va effectivement ouvrir quelque chose,
+        // l'explication de `focusSession` sinon.
+        //
         // `void`, jamais `await` : ce thenable ne se règle qu'à la fermeture
         // du toast (clic ou disparition), parfois des secondes plus tard. Le
         // focus est le geste central du clic (spec §6) ; le message n'est
         // qu'une information, il ne doit jamais le retarder.
-        void vscode.window.showInformationMessage(`Koh-Claude : session « ${label} » demandée`);
+        if (plan.kind === 'command') {
+          void vscode.window.showInformationMessage(`Koh-Claude : session « ${label} » demandée`);
+        }
         await this.focusSession(plan);
       } catch {
         continue;

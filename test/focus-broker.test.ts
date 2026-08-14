@@ -170,6 +170,21 @@ describe('FocusBroker — consommation des requêtes (I3)', () => {
     expect(executeCommand).toHaveBeenCalledWith('claude-vscode.editor.open', 'sess-1');
   });
 
+  it("n'affiche qu'un seul message pour une session distante hors éditeur — l'annonce et l'explication ne doivent pas se contredire", async () => {
+    const showInformationMessage = vi.spyOn(vscode.window, 'showInformationMessage').mockResolvedValue(undefined);
+    vi.spyOn(vscode.commands, 'executeCommand').mockResolvedValue(undefined);
+
+    const other = makeBroker();
+    await other.request(session({ id: 's-term', origin: 'terminal' }));
+
+    vscode.workspace.workspaceFolders = [{ uri: { fsPath: '/Users/dev/projet' } }];
+    const broker = makeBroker();
+    const internal = broker as unknown as { consume: () => Promise<void> };
+    await internal.consume();
+
+    expect(showInformationMessage).toHaveBeenCalledTimes(1);
+  });
+
   it("n'exécute aucune commande pour une session terminal consommée à distance", async () => {
     vi.spyOn(vscode.window, 'showInformationMessage').mockResolvedValue(undefined);
     const executeCommand = vi.spyOn(vscode.commands, 'executeCommand').mockResolvedValue(undefined);
