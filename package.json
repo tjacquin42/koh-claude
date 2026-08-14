@@ -13,6 +13,7 @@
   "keywords": ["claude", "claude code", "anthropic", "sessions", "tableau de bord", "dashboard", "hooks"],
   "icon": "resources/logo.png",
   "galleryBanner": { "color": "#0A1F28", "theme": "dark" },
+  "packageManager": "pnpm@10.25.0",
   "main": "./out/extension.js",
   "activationEvents": ["onStartupFinished"],
   "contributes": {
