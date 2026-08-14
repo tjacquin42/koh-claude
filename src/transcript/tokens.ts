@@ -25,6 +25,7 @@ export async function withTokens(
       transcripts.set(s.id, stats);
       s.tokens = { input: stats.input, output: stats.output };
       if (s.branch === undefined && stats.branch !== undefined) s.branch = stats.branch;
+      if (stats.title !== undefined) s.title = stats.title;
     } catch (err) {
       onFailure?.(s, err);
     }

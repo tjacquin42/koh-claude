@@ -31,9 +31,14 @@ export function formatTokens(n: number): string {
   return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
-/** La branche identifie mieux une session que le projet, déjà porté par le groupe. */
+/**
+ * Le titre complète la ligne, il ne la remplace pas : sans titre (les premières
+ * secondes d'une session, avant que Claude n'en pose un), le repli sur
+ * projet · branche reste la seule information qui dit où travaille la session.
+ */
 export function sessionLabel(s: Session): string {
-  return s.branch ?? s.project;
+  if (s.title !== undefined) return s.title;
+  return s.branch === undefined ? s.project : `${s.project} · ${s.branch}`;
 }
 
 // Les blancs (dont les retours à la ligne d'une commande Bash multi-ligne)
@@ -50,7 +55,10 @@ export function sessionDescription(s: Session, now: number): string {
     const target = s.currentAction.target;
     return target === undefined ? s.currentAction.tool : `${s.currentAction.tool} ${basename(target)}`;
   }
-  return `${statusLabel(s.status)} · ${formatAge(now - s.lastEventAt)}`;
+  const where = s.branch === undefined ? s.project : `${s.project} · ${s.branch}`;
+  return s.title === undefined
+    ? `${statusLabel(s.status)} · ${formatAge(now - s.lastEventAt)}`
+    : `${where} · ${statusLabel(s.status)} · ${formatAge(now - s.lastEventAt)}`;
 }
 
 export function sessionTooltip(s: Session, now: number): string {

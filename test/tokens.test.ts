@@ -82,4 +82,14 @@ describe('withTokens', () => {
     await withTokens(sessions, new Map<string, TranscriptStats>(), onFailure);
     expect(onFailure).not.toHaveBeenCalled();
   });
+
+  it('recopie le titre du transcript sur la session', async () => {
+    const titleFile = join(dir, 'title.jsonl');
+    await writeFile(titleFile, `${JSON.stringify({ type: 'custom-title', customTitle: '#Mon titre' })}\n${assistant(10, 5)}`);
+    const sessions = new Map<string, Session>([['a', session('a', titleFile)]]);
+
+    const out = await withTokens(sessions, new Map<string, TranscriptStats>(), () => {});
+
+    expect(out.get('a')?.title).toBe('#Mon titre');
+  });
 });

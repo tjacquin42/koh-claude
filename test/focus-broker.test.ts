@@ -68,7 +68,7 @@ describe('FocusBroker.request', () => {
     const raw = await readFile(join(dirs.requests, 'focus-s-remote.json'), 'utf8');
     const parsed = JSON.parse(raw) as { sessionId: string; cwd: string; label: string };
     expect(parsed.sessionId).toBe('s-remote');
-    expect(parsed.label).toBe('feat-x'); // sessionLabel() préfère la branche au projet
+    expect(parsed.label).toBe('projet · feat-x'); // sessionLabel() retombe sur projet · branche sans titre
   });
 });
 

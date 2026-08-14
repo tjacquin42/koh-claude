@@ -39,9 +39,22 @@ describe('labels', () => {
     expect(formatTokens(1_000_000)).toBe('1.0M');
   });
 
-  it('étiquette la session avec sa branche', () => {
-    expect(sessionLabel(s)).toBe('feat-seo');
+  it('étiquette la session avec projet et branche en l absence de titre', () => {
+    expect(sessionLabel(s)).toBe('projet · feat-seo');
     expect(sessionLabel({ ...s, branch: undefined })).toBe('projet');
+  });
+
+  it('affiche le titre de la conversation quand il existe', () => {
+    expect(sessionLabel({ ...s, title: '#Koh-Claude' })).toBe('#Koh-Claude');
+  });
+
+  it('retombe sur projet · branche sans titre', () => {
+    expect(sessionLabel({ ...s, title: undefined })).toBe('projet · feat-seo');
+  });
+
+  it('le projet reste lisible dans la description quand un titre occupe le libellé', () => {
+    const d = sessionDescription({ ...s, title: '#Koh-Claude', currentAction: undefined }, s.lastEventAt);
+    expect(d).toContain('projet');
   });
 
   it('décrit l action en cours par le nom de fichier seul', () => {
