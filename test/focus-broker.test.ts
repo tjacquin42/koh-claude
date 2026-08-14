@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -50,25 +50,38 @@ afterEach(() => {
 });
 
 describe('FocusBroker.request', () => {
-  it('focalise directement la fenêtre courante quand elle revendique la session, sans écrire de requête', async () => {
+  it('révèle le panneau de la session (par son identifiant) quand la fenêtre courante la revendique', async () => {
     vscode.workspace.workspaceFolders = [{ uri: { fsPath: '/Users/dev/projet' } }];
     const executeCommand = vi.spyOn(vscode.commands, 'executeCommand').mockResolvedValue(undefined);
     const broker = makeBroker();
 
-    await broker.request(session());
+    await broker.request(session({ id: 'sess-1' }));
 
-    expect(executeCommand).toHaveBeenCalledWith('claude-vscode.editor.openLast');
+    expect(executeCommand).toHaveBeenCalledWith('claude-vscode.editor.open', 'sess-1');
   });
 
-  it("écrit un fichier de requête portant le libellé de la session (sessionLabel) quand aucune fenêtre ne la revendique", async () => {
+  it("n'exécute aucune commande pour une session terminal revendiquée localement — elle explique à la place", async () => {
+    vscode.workspace.workspaceFolders = [{ uri: { fsPath: '/Users/dev/projet' } }];
+    const executeCommand = vi.spyOn(vscode.commands, 'executeCommand').mockResolvedValue(undefined);
+    const showInformationMessage = vi.spyOn(vscode.window, 'showInformationMessage').mockResolvedValue(undefined);
     const broker = makeBroker();
 
-    await broker.request(session({ id: 's-remote', branch: 'feat-x' }));
+    await broker.request(session({ origin: 'terminal' }));
+
+    expect(executeCommand).not.toHaveBeenCalled();
+    expect(showInformationMessage).toHaveBeenCalled();
+  });
+
+  it("écrit un fichier de requête portant le libellé et l'origine de la session quand aucune fenêtre ne la revendique", async () => {
+    const broker = makeBroker();
+
+    await broker.request(session({ id: 's-remote', branch: 'feat-x', origin: 'vscode' }));
 
     const raw = await readFile(join(dirs.requests, 'focus-s-remote.json'), 'utf8');
-    const parsed = JSON.parse(raw) as { sessionId: string; cwd: string; label: string };
+    const parsed = JSON.parse(raw) as { sessionId: string; cwd: string; label: string; origin: string };
     expect(parsed.sessionId).toBe('s-remote');
     expect(parsed.label).toBe('projet · feat-x'); // sessionLabel() retombe sur projet · branche sans titre
+    expect(parsed.origin).toBe('vscode');
   });
 });
 
@@ -135,6 +148,54 @@ describe('FocusBroker — consommation des requêtes (I3)', () => {
     await other.request(session({ id: 's-cross' }));
 
     vscode.workspace.workspaceFolders = [{ uri: { fsPath: '/Users/dev/autre-projet' } }];
+    const broker = makeBroker();
+    const internal = broker as unknown as { consume: () => Promise<void> };
+    await internal.consume();
+
+    expect(executeCommand).not.toHaveBeenCalled();
+  });
+
+  it('reçoit exactement la commande de révélation, avec l identifiant de session en argument', async () => {
+    vi.spyOn(vscode.window, 'showInformationMessage').mockResolvedValue(undefined);
+    const executeCommand = vi.spyOn(vscode.commands, 'executeCommand').mockResolvedValue(undefined);
+
+    const other = makeBroker();
+    await other.request(session({ id: 'sess-1', origin: 'vscode' }));
+
+    vscode.workspace.workspaceFolders = [{ uri: { fsPath: '/Users/dev/projet' } }];
+    const broker = makeBroker();
+    const internal = broker as unknown as { consume: () => Promise<void> };
+    await internal.consume();
+
+    expect(executeCommand).toHaveBeenCalledWith('claude-vscode.editor.open', 'sess-1');
+  });
+
+  it("n'exécute aucune commande pour une session terminal consommée à distance", async () => {
+    vi.spyOn(vscode.window, 'showInformationMessage').mockResolvedValue(undefined);
+    const executeCommand = vi.spyOn(vscode.commands, 'executeCommand').mockResolvedValue(undefined);
+
+    const other = makeBroker();
+    await other.request(session({ id: 's-term', origin: 'terminal' }));
+
+    vscode.workspace.workspaceFolders = [{ uri: { fsPath: '/Users/dev/projet' } }];
+    const broker = makeBroker();
+    const internal = broker as unknown as { consume: () => Promise<void> };
+    await internal.consume();
+
+    expect(executeCommand).not.toHaveBeenCalled();
+  });
+
+  it("n'exécute aucune commande pour une requête sans champ origin (écrite par une version antérieure)", async () => {
+    vi.spyOn(vscode.window, 'showInformationMessage').mockResolvedValue(undefined);
+    const executeCommand = vi.spyOn(vscode.commands, 'executeCommand').mockResolvedValue(undefined);
+
+    await writeFile(
+      join(dirs.requests, 'focus-s-legacy.json'),
+      JSON.stringify({ sessionId: 's-legacy', cwd: '/Users/dev/projet', label: 'projet · feat-x', at: Date.now() }),
+      'utf8',
+    );
+
+    vscode.workspace.workspaceFolders = [{ uri: { fsPath: '/Users/dev/projet' } }];
     const broker = makeBroker();
     const internal = broker as unknown as { consume: () => Promise<void> };
     await internal.consume();

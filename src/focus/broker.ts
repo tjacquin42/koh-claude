@@ -6,10 +6,9 @@ import * as vscode from 'vscode';
 import type { SpoolDirs } from '../paths';
 import type { Session } from '../events/types';
 import { claims } from './claims';
+import { focusPlanFor, type FocusPlan } from './plan';
 import { sessionLabel } from '../ui/labels';
 import { GUARD_TIMEOUT_MS, ReentrantGuard } from '../lib/reentrant-guard';
-
-const FOCUS_COMMAND = 'claude-vscode.editor.openLast';
 
 // Une requête plus vieille que ce délai n'est plus honorée : elle serait
 // consommée hors de tout contexte (ex : par le filet périodique, ou par un
@@ -40,13 +39,19 @@ export class FocusBroker {
   /** Demande le focus d'une session, où qu'elle vive. */
   async request(s: Session): Promise<void> {
     if (claims(this.folders(), s.cwd)) {
-      await this.focusHere();
+      await this.focusSession(focusPlanFor(s));
       return;
     }
     const seq = (this.requestSeq += 1);
     const name = join(this.dirs.requests, `focus-${s.id}.json`);
     const tmp = join(this.dirs.requests, `.tmp-${s.id}-${process.pid}-${seq}`);
-    const body = JSON.stringify({ sessionId: s.id, cwd: s.cwd, label: sessionLabel(s), at: Date.now() });
+    const body = JSON.stringify({
+      sessionId: s.id,
+      cwd: s.cwd,
+      label: sessionLabel(s),
+      origin: s.origin,
+      at: Date.now(),
+    });
     // Fichier temporaire puis renommage : une autre fenêtre réveillée par le
     // même fs.watch ne doit jamais lire un fichier partiel.
     await writeFile(tmp, body, 'utf8');
@@ -73,18 +78,21 @@ export class FocusBroker {
     this.fallbacks.set(s.id, timer);
   }
 
-  private async focusHere(): Promise<void> {
+  private async focusSession(plan: FocusPlan): Promise<void> {
+    if (plan.kind === 'explain') {
+      void vscode.window.showInformationMessage(plan.message);
+      return;
+    }
     try {
-      await vscode.commands.executeCommand(FOCUS_COMMAND);
+      await vscode.commands.executeCommand(plan.command, ...plan.args);
     } catch {
       // Un avertissement par session d'extension suffit : répété à chaque
       // clic, il devient du bruit qu'on apprend à ignorer.
-      if (!this.warnedMissingCommand) {
-        this.warnedMissingCommand = true;
-        void vscode.window.showWarningMessage(
-          "Koh-Claude : l'extension Claude Code n'expose pas de commande de focus dans cette version.",
-        );
-      }
+      if (this.warnedMissingCommand) return;
+      this.warnedMissingCommand = true;
+      void vscode.window.showWarningMessage(
+        "Koh-Claude : l'extension Claude Code n'expose pas de commande de focus dans cette version.",
+      );
     }
   }
 
@@ -156,12 +164,23 @@ export class FocusBroker {
         await unlink(path);
         const rawLabel = (parsed as { label?: unknown }).label;
         const label = typeof rawLabel === 'string' && rawLabel.length > 0 ? rawLabel : 'session';
+        const sessionId = (parsed as { sessionId?: unknown }).sessionId;
+        const origin = (parsed as { origin?: unknown }).origin;
+        if (typeof sessionId !== 'string' || sessionId.length === 0) continue;
+        // Cette fenêtre n'a que ce que la requête porte, pas l'objet Session :
+        // le plan se reconstitue depuis `origin`, jamais deviné. Une requête
+        // écrite par une version antérieure n'a pas ce champ et tombe donc sur
+        // `explain` — le comportement sûr, pas un repli sur l'ancienne commande.
+        const plan: FocusPlan =
+          origin === 'vscode' || origin === 'desktop'
+            ? { kind: 'command', command: 'claude-vscode.editor.open', args: [sessionId] }
+            : { kind: 'explain', message: `Koh-Claude : la session « ${label} » tourne hors de l'éditeur.` };
         // `void`, jamais `await` : ce thenable ne se règle qu'à la fermeture
         // du toast (clic ou disparition), parfois des secondes plus tard. Le
         // focus est le geste central du clic (spec §6) ; le message n'est
         // qu'une information, il ne doit jamais le retarder.
         void vscode.window.showInformationMessage(`Koh-Claude : session « ${label} » demandée`);
-        await this.focusHere();
+        await this.focusSession(plan);
       } catch {
         continue;
       }
