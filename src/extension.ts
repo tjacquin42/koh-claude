@@ -7,7 +7,8 @@ import { groupsFile, kohClaudeHome, spoolDirs } from './paths';
 import { ensureDirs, readSessions } from './spool/persist';
 import { SpoolWatcher } from './spool/watcher';
 import { pruneAssignmentsAfterPurge } from './groups/purge';
-import { applyDrop, createGroupCommand, deleteGroupCommand, renameGroupCommand, runGroupAction } from './groups/commands';
+import { applyDrop, colorGroupCommand, createGroupCommand, deleteGroupCommand, renameGroupCommand, runGroupAction } from './groups/commands';
+import { colorChoice, GROUP_COLORS, NO_COLOR_LABEL } from './ui/colors';
 import { readGroups } from './groups/store';
 import type { TranscriptStats } from './transcript/reader';
 import { withTokens } from './transcript/tokens';
@@ -198,6 +199,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const label = await vscode.window.showInputBox({ prompt: 'Nouveau nom du dossier' });
       await runGroupAction(
         () => renameGroupCommand(groupsPath, id, label),
+        (message) => void vscode.window.showErrorMessage(message),
+      );
+      await render();
+    }),
+    vscode.commands.registerCommand('kohClaude.colorGroup', async (node: unknown) => {
+      const id = groupIdOfNode(node);
+      if (id === undefined) return;
+      const pick = await vscode.window.showQuickPick(
+        [NO_COLOR_LABEL, ...GROUP_COLORS.map((c) => c.label)],
+        { placeHolder: 'Couleur du dossier' },
+      );
+      // Fermer la liste n'efface rien : la distinction vit dans colorChoice.
+      const choice = colorChoice(pick);
+      if (choice.kind === 'cancel') return;
+      await runGroupAction(
+        () => colorGroupCommand(groupsPath, id, choice.color),
         (message) => void vscode.window.showErrorMessage(message),
       );
       await render();

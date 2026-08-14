@@ -1,4 +1,4 @@
-import { assign, createGroup, deleteGroup, renameGroup, unassign } from './model';
+import { assign, createGroup, deleteGroup, renameGroup, setGroupColor, unassign } from './model';
 import type { GroupsState } from './model';
 import { updateGroups } from './store';
 
@@ -37,6 +37,23 @@ export async function renameGroupCommand(
  */
 export async function deleteGroupCommand(groupsFilePath: string, id: string): Promise<GroupsState> {
   return updateGroups(groupsFilePath, (s) => deleteGroup(s, id));
+}
+
+/**
+ * Pose ou retire la couleur d'un dossier.
+ *
+ * Le contrat diffère volontairement de `createGroupCommand` : ici
+ * `color === undefined` est un choix (« aucune couleur »), pas une annulation.
+ * Une liste de choix fermée (Échap) doit donc être distinguée en amont, au
+ * point d'appel, et ne jamais arriver jusqu'ici — sinon fermer la liste
+ * effacerait la couleur au lieu de ne rien faire.
+ */
+export async function colorGroupCommand(
+  groupsFilePath: string,
+  id: string,
+  color: string | undefined,
+): Promise<GroupsState> {
+  return updateGroups(groupsFilePath, (s) => setGroupColor(s, id, color));
 }
 
 /**

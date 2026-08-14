@@ -76,8 +76,14 @@ export async function readTranscript(path: string, from?: TranscriptStats): Prom
       }
       if (!isRecord(entry)) continue;
 
+      // « HEAD » n'est pas un nom de branche mais ce que Claude Code écrit quand
+      // il n'y en a pas : dossier hors dépôt git, ou tête détachée. Écarté ici,
+      // à la frontière, plutôt que dans le libellé — la même règle que la
+      // normalisation des blancs (events/parse.ts) : une valeur qui ne veut rien
+      // dire ne doit jamais entrer dans l'état, sinon chaque affichage doit
+      // penser à s'en défendre.
       const branch = entry['gitBranch'];
-      if (typeof branch === 'string' && branch.length > 0) stats.branch = branch;
+      if (typeof branch === 'string' && branch.length > 0 && branch !== 'HEAD') stats.branch = branch;
 
       const type = entry['type'];
       if (type === 'custom-title') {

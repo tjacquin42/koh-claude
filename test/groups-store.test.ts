@@ -3,7 +3,7 @@ import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { assign, createGroup, deleteGroup, emptyGroups, parseGroups, serializeGroups } from '../src/groups/model';
+import { assign, createGroup, deleteGroup, emptyGroups, parseGroups, serializeGroups, setGroupColor } from '../src/groups/model';
 import { readGroups, updateGroups } from '../src/groups/store';
 
 // `node:fs/promises` est un module natif, mocké entièrement en délégant à l'implémentation
@@ -74,6 +74,36 @@ describe('groups store', () => {
       return assign(s, 's1', 'g1');
     });
     expect(out.groups.map((g) => g.name)).toEqual(['mien', 'sien']);
+  });
+
+  it('une couleur posée ici survit à l écriture simultanée d une autre fenêtre', async () => {
+    // Le défaut d origine : la fusion ne propageait que le nom, et perdait en
+    // silence tout autre attribut du dossier.
+    await updateGroups(file, (s) => createGroup(s, 'mien', () => 'g1'));
+    const out = await updateGroups(file, async (s) => {
+      await writeFile(
+        file,
+        serializeGroups(createGroup(parseGroups(await readFile(file, 'utf8')), 'sien', () => 'g2')),
+      );
+      return setGroupColor(s, 'g1', 'purple');
+    });
+    expect(out.groups.map((g) => [g.name, g.color])).toEqual([
+      ['mien', 'purple'],
+      ['sien', undefined],
+    ]);
+    expect((await readGroups(file)).groups[0]?.color).toBe('purple');
+  });
+
+  it('une couleur retirée ici n est pas ressuscitée par l état plus frais', async () => {
+    await updateGroups(file, (s) => setGroupColor(createGroup(s, 'mien', () => 'g1'), 'g1', 'red'));
+    const out = await updateGroups(file, async (s) => {
+      await writeFile(
+        file,
+        serializeGroups(createGroup(parseGroups(await readFile(file, 'utf8')), 'sien', () => 'g2')),
+      );
+      return setGroupColor(s, 'g1', undefined);
+    });
+    expect(out.groups[0]).not.toHaveProperty('color');
   });
 
   it('un dossier supprimé ici reste supprimé même si l autre fenêtre l ignorait', async () => {

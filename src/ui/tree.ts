@@ -3,12 +3,18 @@ import type { Session, Status } from '../events/types';
 import { withStaleness } from '../store/staleness';
 import { sessionDescription, sessionLabel, sessionTooltip, statusLabel } from './labels';
 import { emptyGroups, groupIdOf, type Group, type GroupsState } from '../groups/model';
+import { themeColorOf } from './colors';
 
 export type TreeNode =
   // `group: undefined` désigne « Sans dossier », le reliquat des sessions non
   // rangées — pas un dossier au sens de l'utilisateur, voir contextValue plus bas.
   | { kind: 'group'; group: Group | undefined; sessions: Session[] }
   | { kind: 'session'; session: Session }
+  // Une ligne vide entre deux dossiers. VSCode n'offre aucun réglage d'espacement
+  // pour une vue d'arbre : la seule marge qu'une extension peut poser est une
+  // ligne. Elle ne porte donc ni commande, ni contextValue, ni identifiant —
+  // rien qui la rende cliquable ou ciblable par un dépôt.
+  | { kind: 'spacer'; after: string }
   // `action` distingue « il faut installer les hooks », cliquable, de « rien à
   // afficher », qui ne doit rien déclencher.
   | { kind: 'empty'; message: string; action?: 'install' };
@@ -42,6 +48,25 @@ export function groupIdOfNode(node: unknown): string | undefined {
   const candidate = node as { kind?: unknown; group?: { id?: unknown } };
   if (candidate.kind !== 'group' || candidate.group === undefined) return undefined;
   return typeof candidate.group.id === 'string' ? candidate.group.id : undefined;
+}
+
+/**
+ * Intercale une ligne vide entre les dossiers — jamais avant le premier, qui
+ * n'aurait rien à séparer, ni après le dernier, qui laisserait un blanc en bas
+ * de la vue. Chaque séparateur porte l'identifiant du dossier
+ * qu'il précède : VSCode distingue les éléments d'un arbre par leur identité,
+ * et deux séparateurs indiscernables se marcheraient dessus au
+ * rafraîchissement.
+ */
+function withSpacers(nodes: readonly TreeNode[]): TreeNode[] {
+  const out: TreeNode[] = [];
+  for (const node of nodes) {
+    if (out.length > 0 && node.kind === 'group') {
+      out.push({ kind: 'spacer', after: node.group?.id ?? 'unfiled' });
+    }
+    out.push(node);
+  }
+  return out;
 }
 
 export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.TreeDragAndDropController<TreeNode> {
@@ -120,7 +145,7 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
         sessions: byGroup.get(group.id) ?? [],
       }));
       if (unfiled.length > 0) nodes.push({ kind: 'group', group: undefined, sessions: unfiled });
-      return nodes;
+      return withSpacers(nodes);
     }
     if (node.kind === 'group') return node.sessions.map((session) => ({ kind: 'session', session }));
     return [];
@@ -134,9 +159,19 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
       }
       return item;
     }
+    if (node.kind === 'spacer') {
+      // Un libellé vide, et rien d'autre : pas d'icône (qui la rendrait visible),
+      // pas de commande (qui la rendrait cliquable), pas de contextValue (qui lui
+      // donnerait un menu). Elle n'est là que pour occuper une hauteur de ligne.
+      return new vscode.TreeItem('');
+    }
     if (node.kind === 'group') {
       const item = new vscode.TreeItem(node.group?.name ?? 'Sans dossier', vscode.TreeItemCollapsibleState.Expanded);
       item.description = `${node.sessions.length} session${node.sessions.length > 1 ? 's' : ''}`;
+      // « Sans dossier » n'est pas un dossier : il ne se colore pas, faute de
+      // pouvoir porter un choix de l'utilisateur.
+      const theme = themeColorOf(node.group?.color);
+      item.iconPath = new vscode.ThemeIcon('folder', theme === undefined ? undefined : new vscode.ThemeColor(theme));
       // « Sans dossier » n'est pas un dossier de l'utilisateur : pas d'id, pas
       // de renommage ni de suppression possibles, donc pas ce contextValue.
       item.contextValue = node.group === undefined ? 'unfiled' : 'group';

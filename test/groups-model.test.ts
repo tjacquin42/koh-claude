@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   assign, createGroup, deleteGroup, emptyGroups, groupIdOf, parseGroups,
-  pruneAssignments, renameGroup, serializeGroups, unassign,
+  pruneAssignments, renameGroup, serializeGroups, setGroupColor, unassign,
 } from '../src/groups/model';
+import type { GroupsState } from '../src/groups/model';
 
 describe('parseGroups', () => {
   it('rend un état vide sur une donnée illisible', () => {
@@ -165,5 +166,54 @@ describe('pruneAssignments', () => {
   it('rend le même objet quand il n y a rien à retirer', () => {
     const s = assign(createGroup(emptyGroups(), 'd', () => 'g1'), 's1', 'g1');
     expect(pruneAssignments(s, new Set(['s1']))).toBe(s);
+  });
+});
+
+describe('setGroupColor', () => {
+  const state = (): GroupsState =>
+    parseGroups(JSON.stringify({ version: 1, groups: [{ id: 'g-1', name: 'Un', order: 0 }], assignments: {} }));
+
+  it('pose la couleur sur le bon dossier, et sur lui seul', () => {
+    const two = parseGroups(
+      JSON.stringify({
+        version: 1,
+        groups: [
+          { id: 'g-1', name: 'Un', order: 0 },
+          { id: 'g-2', name: 'Deux', order: 1 },
+        ],
+        assignments: {},
+      }),
+    );
+    const after = setGroupColor(two, 'g-2', 'red');
+    expect(after.groups.map((g) => g.color)).toEqual([undefined, 'red']);
+  });
+
+  it('remplace une couleur déjà posée', () => {
+    expect(setGroupColor(setGroupColor(state(), 'g-1', 'blue'), 'g-1', 'green').groups[0]?.color).toBe('green');
+  });
+
+  it('retire la clé plutôt que d\'écrire une couleur vide', () => {
+    const cleared = setGroupColor(setGroupColor(state(), 'g-1', 'blue'), 'g-1', undefined);
+    expect(cleared.groups[0]).not.toHaveProperty('color');
+    expect(JSON.parse(serializeGroups(cleared)).groups[0]).not.toHaveProperty('color');
+  });
+
+  it('ignore un dossier qui n\'existe pas', () => {
+    expect(setGroupColor(state(), 'g-inconnu', 'red').groups[0]?.color).toBeUndefined();
+  });
+
+  it('fait le tour du fichier : une couleur écrite se relit', () => {
+    const written = serializeGroups(setGroupColor(state(), 'g-1', 'purple'));
+    expect(parseGroups(written).groups[0]?.color).toBe('purple');
+  });
+
+  it('conserve une couleur qu\'on ne connaît pas — l\'autre éditeur peut être plus récent', () => {
+    const raw = JSON.stringify({
+      version: 1,
+      groups: [{ id: 'g-1', name: 'Un', order: 0, color: 'turquoise' }],
+      assignments: {},
+    });
+    expect(parseGroups(raw).groups[0]?.color).toBe('turquoise');
+    expect(JSON.parse(serializeGroups(parseGroups(raw))).groups[0].color).toBe('turquoise');
   });
 });

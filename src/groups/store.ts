@@ -158,15 +158,41 @@ async function readRaw(file: string): Promise<string | undefined> {
   }
 }
 
+/** L'ordre n'en fait pas partie : il est recalculé à la fin de la fusion. */
+function sameAttributes(a: Group, b: Group): boolean {
+  return a.name === b.name && a.color === b.color;
+}
+
+/**
+ * Pose sur le dossier le plus frais les attributs de notre édition. Une couleur
+ * retirée retire la clé plutôt que d'écrire `undefined` — même règle que
+ * `setGroupColor` (model.ts), pour qu'un aller-retour par le fichier ne laisse
+ * pas de clé morte derrière lui.
+ */
+function applyEdit(target: Group, edit: Group): Group {
+  const { color: _dropped, ...rest } = target;
+  const merged: Group = { ...rest, name: edit.name };
+  return edit.color === undefined ? merged : { ...merged, color: edit.color };
+}
+
 function mergeGroups(latest: readonly Group[], before: readonly Group[], after: readonly Group[]): Group[] {
   const added = after.filter((g) => !before.some((b) => b.id === g.id));
   const removed = new Set(before.filter((b) => !after.some((a) => a.id === b.id)).map((b) => b.id));
-  const renamed = new Map(
-    after.filter((a) => before.some((b) => b.id === a.id && b.name !== a.name)).map((a) => [a.id, a.name]),
+  // Les dossiers conservés viennent de `latest` — l'état le plus frais, qui peut
+  // contenir le travail d'une autre fenêtre — et ne reçoivent de NOTRE édition
+  // que les attributs qu'elle a réellement changés. Ne propager que le nom, comme
+  // le faisait ce code, perdait en silence tout autre attribut : une couleur
+  // posée disparaissait à l'écriture. `sameAttributes` est donc la liste, à tenir
+  // à jour, de ce qu'un dossier porte et qu'une fenêtre peut modifier.
+  const edited = new Map(
+    after.filter((a) => before.some((b) => b.id === a.id && !sameAttributes(b, a))).map((a) => [a.id, a] as const),
   );
   const kept = latest
     .filter((g) => !removed.has(g.id))
-    .map((g) => ({ ...g, name: renamed.get(g.id) ?? g.name }));
+    .map((g) => {
+      const edit = edited.get(g.id);
+      return edit === undefined ? g : applyEdit(g, edit);
+    });
   const merged = [...kept, ...added.filter((g) => !kept.some((k) => k.id === g.id))];
   return merged.map((g, i) => ({ ...g, order: i }));
 }

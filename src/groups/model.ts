@@ -2,6 +2,14 @@ export interface Group {
   id: string;
   name: string;
   order: number;
+  /**
+   * Identifiant de couleur, neutre et stable (« blue », « green »…), jamais un
+   * libellé traduit ni une valeur de thème : le fichier est partagé entre
+   * éditeurs et doit survivre à un changement de palette comme à un changement
+   * de langue. La correspondance vers une couleur réelle vit dans ui/colors.ts,
+   * et une valeur inconnue s'y affiche sans couleur au lieu de casser la vue.
+   */
+  color?: string;
 }
 
 export interface GroupsState {
@@ -49,7 +57,8 @@ export function parseGroups(raw: string): GroupsState {
       if (seenIds.has(id)) continue;
       seenIds.add(id);
       const order = typeof g['order'] === 'number' && Number.isFinite(g['order']) ? g['order'] : i;
-      groups.push({ id, name: label, order });
+      const color = name(g['color']);
+      groups.push(color === undefined ? { id, name: label, order } : { id, name: label, order, color });
     }
   }
   groups.sort((a, b) => a.order - b.order);
@@ -83,6 +92,23 @@ export function renameGroup(s: GroupsState, id: string, label: string): GroupsSt
   const clean = name(label);
   if (clean === undefined) throw new Error('Un dossier ne peut pas avoir un nom vide.');
   return { ...s, groups: s.groups.map((g) => (g.id === id ? { ...g, name: clean } : g)) };
+}
+
+/**
+ * `color === undefined` retire la couleur au lieu de l'ignorer : « aucune » est
+ * un choix de l'utilisateur, pas une absence de choix. La propriété est alors
+ * retirée de l'objet, pour qu'un dossier sans couleur ne laisse pas une clé
+ * morte dans le fichier partagé.
+ */
+export function setGroupColor(s: GroupsState, id: string, color: string | undefined): GroupsState {
+  return {
+    ...s,
+    groups: s.groups.map((g) => {
+      if (g.id !== id) return g;
+      const { color: _drop, ...rest } = g;
+      return color === undefined ? rest : { ...rest, color };
+    }),
+  };
 }
 
 export function deleteGroup(s: GroupsState, id: string): GroupsState {

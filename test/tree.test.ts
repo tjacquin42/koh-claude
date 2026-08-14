@@ -112,9 +112,9 @@ describe('SessionsTree — deux niveaux : dossiers puis sessions', () => {
       }),
     );
 
-    expect(await labelsOf(tree)).toEqual(['Perso', 'Taf']);
+    expect(await labelsOf(tree)).toEqual(['Perso', '', 'Taf']);
 
-    const [persoNode, tafNode] = await tree.getChildren();
+    const [persoNode, , tafNode] = await tree.getChildren();
     expect(await labelsOf(tree, persoNode)).toEqual(['beta']);
     expect(await labelsOf(tree, tafNode)).toEqual(['alpha']);
   });
@@ -134,7 +134,7 @@ describe('SessionsTree — deux niveaux : dossiers puis sessions', () => {
       }),
     );
 
-    expect(await labelsOf(tree)).toEqual(['Dossier unique', 'Sans dossier']);
+    expect(await labelsOf(tree)).toEqual(['Dossier unique', '', 'Sans dossier']);
   });
 
   it('« Sans dossier » disparaît quand toutes les sessions sont rangées', async () => {
@@ -159,7 +159,7 @@ describe('SessionsTree — deux niveaux : dossiers puis sessions', () => {
       }),
     );
 
-    expect(await labelsOf(tree)).toEqual(['Dossier vide', 'Sans dossier']);
+    expect(await labelsOf(tree)).toEqual(['Dossier vide', '', 'Sans dossier']);
 
     const [emptyGroupNode] = await tree.getChildren();
     expect(await labelsOf(tree, emptyGroupNode)).toEqual([]);
@@ -196,7 +196,7 @@ describe('SessionsTree — deux niveaux : dossiers puis sessions', () => {
       }),
     );
 
-    const [groupNode, unfiledNode] = await tree.getChildren();
+    const [groupNode, , unfiledNode] = await tree.getChildren();
     expect(tree.getTreeItem(groupNode).contextValue).toBe('group');
     expect(tree.getTreeItem(unfiledNode).contextValue).toBe('unfiled');
   });
@@ -270,5 +270,78 @@ describe('groupIdOfNode — résout un identifiant de dossier sans jamais caster
   // restante (`group !== undefined`) laisserait passer 'g1'.
   it('ignore un group.id valide porté par un nœud dont le kind n est pas "group"', () => {
     expect(groupIdOfNode({ kind: 'session', group: { id: 'g1', name: 'x', order: 0 } })).toBeUndefined();
+  });
+});
+
+describe('SessionsTree — espace et couleur des dossiers', () => {
+  const withGroups = (list: Array<{ id: string; name: string; order: number; color?: string }>): SessionsTree => {
+    const tree = new SessionsTree(() => Promise.resolve(true), noopOnDrop);
+    tree.setSessions(new Map([['s1', session('s1')]]));
+    tree.setGroups(groups({ groups: list, assignments: { s1: list[0]?.id ?? 'g-1' } }));
+    return tree;
+  };
+
+  it('sépare les dossiers par une ligne vide, jamais avant le premier ni après le dernier', async () => {
+    const tree = withGroups([
+      { id: 'g-1', name: 'Un', order: 0 },
+      { id: 'g-2', name: 'Deux', order: 1 },
+      { id: 'g-3', name: 'Trois', order: 2 },
+    ]);
+    expect(await labelsOf(tree)).toEqual(['Un', '', 'Deux', '', 'Trois']);
+  });
+
+  it('n\'ajoute aucune ligne quand il n\'y a qu\'un seul dossier', async () => {
+    const tree = withGroups([{ id: 'g-1', name: 'Seul', order: 0 }]);
+    expect(await labelsOf(tree)).toEqual(['Seul']);
+  });
+
+  it('donne des identités distinctes aux séparateurs — deux nœuds identiques se marcheraient dessus', async () => {
+    const tree = withGroups([
+      { id: 'g-1', name: 'Un', order: 0 },
+      { id: 'g-2', name: 'Deux', order: 1 },
+      { id: 'g-3', name: 'Trois', order: 2 },
+    ]);
+    const spacers = (await tree.getChildren()).filter((n) => n.kind === 'spacer');
+    expect(spacers).toHaveLength(2);
+    expect(new Set(spacers.map((n) => (n.kind === 'spacer' ? n.after : ''))).size).toBe(2);
+  });
+
+  it('ne rend le séparateur ni cliquable, ni ciblable par un menu', async () => {
+    const tree = withGroups([
+      { id: 'g-1', name: 'Un', order: 0 },
+      { id: 'g-2', name: 'Deux', order: 1 },
+    ]);
+    const [, spacer] = await tree.getChildren();
+    const item = tree.getTreeItem(spacer);
+    expect(item.command).toBeUndefined();
+    expect(item.contextValue).toBeUndefined();
+    expect(await tree.getChildren(spacer)).toEqual([]);
+  });
+
+  it('colore l\'icône du dossier avec la couleur choisie', async () => {
+    const tree = withGroups([{ id: 'g-1', name: 'Un', order: 0, color: 'green' }]);
+    const [node] = await tree.getChildren();
+    const icon = tree.getTreeItem(node).iconPath as { id: string; color?: { id: string } };
+    expect(icon.id).toBe('folder');
+    expect(icon.color?.id).toBe('charts.green');
+  });
+
+  it('affiche sans couleur un dossier sans choix, ou dont la couleur nous est inconnue', async () => {
+    for (const color of [undefined, 'turquoise']) {
+      const tree = withGroups([{ id: 'g-1', name: 'Un', order: 0, color }]);
+      const [node] = await tree.getChildren();
+      const icon = tree.getTreeItem(node).iconPath as { id: string; color?: { id: string } };
+      expect(icon.id).toBe('folder');
+      expect(icon.color).toBeUndefined();
+    }
+  });
+
+  it('ne colore pas « Sans dossier », qui ne porte aucun choix de l\'utilisateur', async () => {
+    const tree = new SessionsTree(() => Promise.resolve(true), noopOnDrop);
+    tree.setSessions(new Map([['s1', session('s1')]]));
+    tree.setGroups(groups({ groups: [] }));
+    const [node] = await tree.getChildren();
+    const icon = tree.getTreeItem(node).iconPath as { id: string; color?: { id: string } };
+    expect(icon.color).toBeUndefined();
   });
 });

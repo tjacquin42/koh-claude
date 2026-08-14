@@ -6,6 +6,7 @@ import { assign, createGroup } from '../src/groups/model';
 import { readGroups, updateGroups } from '../src/groups/store';
 import {
   applyDrop,
+  colorGroupCommand,
   createGroupCommand,
   deleteGroupCommand,
   renameGroupCommand,
@@ -169,5 +170,26 @@ describe('runGroupAction', () => {
     await runGroupAction(() => Promise.reject('boom'), onError);
 
     expect(onError).toHaveBeenCalledWith('boom');
+  });
+});
+
+describe('colorGroupCommand', () => {
+  it('écrit la couleur dans le fichier partagé, et la relit', async () => {
+    await updateGroups(file, (s) => createGroup(s, 'Perso', () => 'g-1'));
+    await colorGroupCommand(file, 'g-1', 'orange');
+    expect((await readGroups(file)).groups[0]?.color).toBe('orange');
+  });
+
+  it('retire la couleur sans toucher au reste du classement', async () => {
+    await updateGroups(file, (s) => assign(createGroup(s, 'Perso', () => 'g-1'), 'sess-1', 'g-1'));
+    await colorGroupCommand(file, 'g-1', 'red');
+    // Vérifié avant de retirer : sans cette ligne, le test passerait tout aussi
+    // bien si la couleur n'était jamais écrite.
+    expect((await readGroups(file)).groups[0]?.color).toBe('red');
+    await colorGroupCommand(file, 'g-1', undefined);
+    const after = await readGroups(file);
+    expect(after.groups[0]?.color).toBeUndefined();
+    expect(after.groups[0]?.name).toBe('Perso');
+    expect(after.assignments['sess-1']).toBe('g-1');
   });
 });

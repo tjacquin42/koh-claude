@@ -76,6 +76,19 @@ describe('readTranscript', () => {
     expect(stats.branch).toBe('feat-seo');
   });
 
+  it('écarte « HEAD », qui n est pas une branche mais l absence de branche', async () => {
+    // Ce que Claude Code écrit pour un dossier hors dépôt git, ou une tête
+    // détachée. Affiché tel quel, il donnait « DEV · HEAD » : un libellé qui
+    // ressemble à une information alors qu il n en porte aucune.
+    await writeFile(file, assistant(100, 20).replace('"gitBranch":"feat-seo"', '"gitBranch":"HEAD"'));
+    expect((await readTranscript(file)).branch).toBeUndefined();
+  });
+
+  it('ne confond pas HEAD avec une branche dont le nom le contient', async () => {
+    await writeFile(file, assistant(100, 20).replace('"gitBranch":"feat-seo"', '"gitBranch":"feat/HEAD-fix"'));
+    expect((await readTranscript(file)).branch).toBe('feat/HEAD-fix');
+  });
+
   it('reprend là où elle s est arrêtée sans recompter', async () => {
     await writeFile(file, assistant(100, 20));
     const first = await readTranscript(file);
