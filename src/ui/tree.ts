@@ -49,11 +49,10 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
     private readonly checkHooksInstalled: () => Promise<boolean>,
     // Signale une intention, comme checkHooksInstalled ci-dessus : la vue ne
     // connaît ni le fichier de classement ni updateGroups. Le câblage fournit
-    // une fonction qui appelle updateGroups ; sans effet par défaut, pour que
-    // les tests qui ne portent pas sur le glisser-déposer restent valides
-    // sans avoir à le fournir.
-    private readonly onDrop: (sessionIds: readonly string[], groupId: string | undefined) => Promise<void> = () =>
-      Promise.resolve(),
+    // une fonction qui appelle updateGroups. Obligatoire et sans valeur par
+    // défaut : un câblage oublié doit échouer à la compilation, pas produire
+    // un glisser-déposer silencieusement inerte à l'exécution.
+    private readonly onDrop: (sessionIds: readonly string[], groupId: string | undefined) => Promise<void>,
   ) {}
 
   setSessions(map: Map<string, Session>): void {

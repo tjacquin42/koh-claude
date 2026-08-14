@@ -22,6 +22,10 @@ const groups = (state: Partial<GroupsState>): GroupsState => ({
   ...state,
 });
 
+// onDrop est obligatoire au constructeur : ces tests portent sur l'affichage,
+// pas sur le glisser-déposer, donc un bouchon sans effet partagé suffit ici.
+const noopOnDrop = async (): Promise<void> => undefined;
+
 // Les tests affirment la liste des libellés effectivement rendus (via
 // getTreeItem), pas un simple compte de nœuds : un compte ne dit rien de
 // l'ordre ni du contenu, deux propriétés que ces règles portent explicitement.
@@ -40,7 +44,7 @@ const labelsOf = async (tree: SessionsTree, node?: TreeNode): Promise<string[]> 
 describe('SessionsTree — hooksInstalled recalculé à la demande (I5)', () => {
   it("n'interroge pas l'état des hooks quand des sessions sont à afficher, même s'ils sont en réalité désinstallés", async () => {
     const checkHooksInstalled = vi.fn().mockResolvedValue(false);
-    const tree = new SessionsTree(checkHooksInstalled);
+    const tree = new SessionsTree(checkHooksInstalled, noopOnDrop);
     tree.setSessions(new Map([['s1', session('s1')]]));
 
     const children = await tree.getChildren();
@@ -51,7 +55,7 @@ describe('SessionsTree — hooksInstalled recalculé à la demande (I5)', () => 
 
   it("interroge l'état des hooks seulement quand il n'y a aucune session, et affiche le nœud d'installation s'ils manquent", async () => {
     const checkHooksInstalled = vi.fn().mockResolvedValue(false);
-    const tree = new SessionsTree(checkHooksInstalled);
+    const tree = new SessionsTree(checkHooksInstalled, noopOnDrop);
 
     const children = await tree.getChildren();
 
@@ -63,7 +67,7 @@ describe('SessionsTree — hooksInstalled recalculé à la demande (I5)', () => 
 
   it("un rendu sans session reflète une installation faite entre-temps, sans rechargement de fenêtre", async () => {
     const checkHooksInstalled = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
-    const tree = new SessionsTree(checkHooksInstalled);
+    const tree = new SessionsTree(checkHooksInstalled, noopOnDrop);
 
     const before = await tree.getChildren();
     expect(before).toEqual([
@@ -78,7 +82,7 @@ describe('SessionsTree — hooksInstalled recalculé à la demande (I5)', () => 
 
   it('ne consulte plus jamais les hooks une fois que des sessions apparaissent (le symptôme I5 disparaît par construction)', async () => {
     const checkHooksInstalled = vi.fn().mockResolvedValue(false);
-    const tree = new SessionsTree(checkHooksInstalled);
+    const tree = new SessionsTree(checkHooksInstalled, noopOnDrop);
 
     await tree.getChildren(); // aucune session : interroge, affiche « non installés »
     tree.setSessions(new Map([['s1', session('s1')]]));
@@ -91,7 +95,7 @@ describe('SessionsTree — hooksInstalled recalculé à la demande (I5)', () => 
 
 describe('SessionsTree — deux niveaux : dossiers puis sessions', () => {
   it('range les sessions sous leur dossier, dans l ordre des dossiers', async () => {
-    const tree = new SessionsTree(() => Promise.resolve(true));
+    const tree = new SessionsTree(() => Promise.resolve(true), noopOnDrop);
     tree.setSessions(
       new Map([
         ['s1', session('s1', { project: 'alpha' })],
@@ -116,7 +120,7 @@ describe('SessionsTree — deux niveaux : dossiers puis sessions', () => {
   });
 
   it('« Sans dossier » vient toujours en dernier', async () => {
-    const tree = new SessionsTree(() => Promise.resolve(true));
+    const tree = new SessionsTree(() => Promise.resolve(true), noopOnDrop);
     tree.setSessions(
       new Map([
         ['s1', session('s1', { project: 'alpha' })],
@@ -134,7 +138,7 @@ describe('SessionsTree — deux niveaux : dossiers puis sessions', () => {
   });
 
   it('« Sans dossier » disparaît quand toutes les sessions sont rangées', async () => {
-    const tree = new SessionsTree(() => Promise.resolve(true));
+    const tree = new SessionsTree(() => Promise.resolve(true), noopOnDrop);
     tree.setSessions(new Map([['s1', session('s1')]]));
     tree.setGroups(
       groups({
@@ -147,7 +151,7 @@ describe('SessionsTree — deux niveaux : dossiers puis sessions', () => {
   });
 
   it('un dossier vide reste visible, pour pouvoir y déposer', async () => {
-    const tree = new SessionsTree(() => Promise.resolve(true));
+    const tree = new SessionsTree(() => Promise.resolve(true), noopOnDrop);
     tree.setSessions(new Map([['s1', session('s1')]])); // non rangée
     tree.setGroups(
       groups({
@@ -162,7 +166,7 @@ describe('SessionsTree — deux niveaux : dossiers puis sessions', () => {
   });
 
   it('trie les sessions d un dossier par statut puis par récence, comme la liste globale', async () => {
-    const tree = new SessionsTree(() => Promise.resolve(true));
+    const tree = new SessionsTree(() => Promise.resolve(true), noopOnDrop);
     tree.setSessions(
       new Map([
         ['s1', session('s1', { project: 'idle-old', status: 'idle', lastEventAt: 100 })],
@@ -183,7 +187,7 @@ describe('SessionsTree — deux niveaux : dossiers puis sessions', () => {
   });
 
   it('donne un contextValue distinct à un vrai dossier et à « Sans dossier »', async () => {
-    const tree = new SessionsTree(() => Promise.resolve(true));
+    const tree = new SessionsTree(() => Promise.resolve(true), noopOnDrop);
     tree.setSessions(new Map([['s1', session('s1')], ['s2', session('s2')]]));
     tree.setGroups(
       groups({
@@ -199,7 +203,7 @@ describe('SessionsTree — deux niveaux : dossiers puis sessions', () => {
 
   it('l état vide global est inchangé quand il n y a aucune session', async () => {
     const checkHooksInstalled = vi.fn().mockResolvedValue(true);
-    const tree = new SessionsTree(checkHooksInstalled);
+    const tree = new SessionsTree(checkHooksInstalled, noopOnDrop);
     tree.setGroups(groups({ groups: [{ id: 'g1', name: 'Dossier', order: 0 }] }));
 
     const children = await tree.getChildren();

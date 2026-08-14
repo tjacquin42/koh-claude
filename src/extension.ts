@@ -36,7 +36,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   }
 
-  const tree = new SessionsTree(checkHooksInstalled);
+  const tree = new SessionsTree(
+    checkHooksInstalled,
+    // Câblage réel laissé à la tâche suivante (appellera updateGroups sur
+    // groupsPath) : onDrop est un paramètre obligatoire du constructeur
+    // précisément pour qu'un câblage oublié échoue ici, à la compilation,
+    // plutôt que de laisser un glisser-déposer silencieusement inerte.
+    () => Promise.resolve(),
+  );
   const status = new StatusSummary();
   const broker = new FocusBroker(dirs);
   const transcripts = new Map<string, TranscriptStats>();
