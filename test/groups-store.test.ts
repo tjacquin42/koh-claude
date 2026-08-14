@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,12 +7,15 @@ import { assign, createGroup, deleteGroup, emptyGroups, parseGroups, serializeGr
 import { readGroups, updateGroups } from '../src/groups/store';
 
 // `node:fs/promises` est un module natif, mocké entièrement en délégant à l'implémentation
-// réelle sauf quand un test arme `readFileOverride` — même convention que test/watcher.test.ts.
+// réelle sauf quand un test arme l'un des overrides — même convention que test/watcher.test.ts.
 // Sert à injecter un point d'entrelacement PILOTÉ (jamais chronométré) : une écriture d'une
-// autre fenêtre déclenchée depuis l'intérieur d'un appel précis à `readFile`, plutôt qu'une
-// course espérée avec des délais.
-const { readFileOverride } = vi.hoisted(() => ({
+// autre fenêtre déclenchée depuis l'intérieur d'un appel précis à `readFile`, ou un échec
+// déclenché depuis un appel précis à `rename`, plutôt qu'une course espérée avec des délais.
+const { readFileOverride, renameOverride } = vi.hoisted(() => ({
   readFileOverride: { current: undefined as ((path: string) => Promise<string> | undefined) | undefined },
+  renameOverride: {
+    current: undefined as ((oldPath: string, newPath: string) => Promise<void> | undefined) | undefined,
+  },
 }));
 
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -25,6 +28,13 @@ vi.mock('node:fs/promises', async (importOriginal) => {
     ) => {
       const override = readFileOverride.current?.(String(path));
       return override !== undefined ? override : actual.readFile(path, encoding);
+    },
+    rename: (
+      oldPath: Parameters<typeof actual.rename>[0],
+      newPath: Parameters<typeof actual.rename>[1],
+    ) => {
+      const override = renameOverride.current?.(String(oldPath), String(newPath));
+      return override !== undefined ? override : actual.rename(oldPath, newPath);
     },
   };
 });
@@ -40,6 +50,7 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
   readFileOverride.current = undefined;
+  renameOverride.current = undefined;
 });
 
 describe('groups store', () => {
@@ -94,10 +105,61 @@ describe('groups store', () => {
     expect(out.groups.map((g) => g.name).sort()).toEqual(['autre', 'dossier']);
   });
 
+  // Tour de correction 2, Mineur : une suppression concurrente à une affectation vers le même
+  // dossier produit une affectation orpheline transitoire dans le résultat immédiat de
+  // `updateGroups` (la fusion ne connaît pas les invariants de `parseGroups`, elle ne fait que
+  // combiner). Elle ne persiste pas : `parseGroups`, appelé par toute lecture suivante, filtre
+  // déjà toute affectation qui ne pointe sur aucun dossier existant (voir groups-model.test.ts).
+  it('une affectation orpheline transitoire se corrige à la lecture suivante', async () => {
+    await updateGroups(file, (s) => createGroup(s, 'à supprimer', () => 'g1'));
+    // point d'entrelacement injecté : une autre fenêtre affecte une session à g1 pendant qu on
+    // le supprime, sans savoir que la suppression est en cours
+    const out = await updateGroups(file, async (s) => {
+      await writeFile(
+        file,
+        serializeGroups(assign(parseGroups(await readFile(file, 'utf8')), 's-orpheline', 'g1')),
+      );
+      return deleteGroup(s, 'g1');
+    });
+
+    // état transitoire immédiat : la fusion écrit l'affectation orpheline telle quelle
+    expect(out.groups).toEqual([]);
+    expect(out.assignments).toEqual({ 's-orpheline': 'g1' });
+
+    // la lecture suivante s'auto-corrige
+    expect((await readGroups(file)).assignments).toEqual({});
+  });
+
   it('écrit de façon atomique : aucun fichier temporaire ne subsiste', async () => {
     await updateGroups(file, (s) => createGroup(s, 'x', () => 'g1'));
     const restes = (await readdir(dir)).filter((n) => n.startsWith('.tmp'));
     expect(restes).toEqual([]);
+  });
+
+  // Tour de correction 2, Important : ce comportement était déjà correct (vérifié à l'exécution
+  // par le relecteur) mais non couvert — exactement le genre de garantie qui casse en silence,
+  // comme le gel vécu au lot précédent sur une garde de réentrance dont le drapeau restait levé.
+  it('un rename qui échoue ne laisse aucun fichier temporaire', async () => {
+    renameOverride.current = () => Promise.reject(new Error('disque plein'));
+
+    await expect(updateGroups(file, (s) => createGroup(s, 'x', () => 'g1'))).rejects.toThrow('disque plein');
+
+    renameOverride.current = undefined;
+    const restes = (await readdir(dir)).filter((n) => n.startsWith('.tmp'));
+    expect(restes).toEqual([]);
+  });
+
+  // Tour de correction 2, Important : idem — une transformation qui lève ne doit pas laisser la
+  // file bloquée pour toujours (c'est précisément le gel vécu au lot précédent).
+  it('une transformation qui lève ne bloque pas la file pour les appels suivants', async () => {
+    await expect(
+      updateGroups(file, () => {
+        throw new Error('boom');
+      }),
+    ).rejects.toThrow('boom');
+
+    const out = await updateGroups(file, (s) => createGroup(s, 'après', () => 'g1'));
+    expect(out.groups.map((g) => g.name)).toEqual(['après']);
   });
 
   it('préserve les champs inconnus au travers d un aller-retour', async () => {
@@ -135,14 +197,40 @@ describe('groups store', () => {
     expect(out.groups.map((g) => g.name).sort()).toEqual(['ailleurs', 'base', 'mine']);
   });
 
+  // Tour de correction 2, Critique : la dernière tentative doit relire elle aussi avant de
+  // renommer, exactement comme les précédentes — c'est la tentative qu'on n'atteint qu'en cas
+  // de contention réelle et soutenue, donc précisément celle où une autre fenêtre a le plus de
+  // chances d'être en train d'écrire. Trois écritures externes injectées, une à chaque relecture
+  // de contrôle (les trois seules tentatives budgétées) : si la dernière relecture était encore
+  // sautée, le troisième ajout serait écrasé en silence par le `rename` final. Les override de
+  // `readFile` ci-dessous utilisent `node:fs` synchrone (non mocké) pour l'écriture externe,
+  // afin de ne pas ré-entrer dans le `readFile` mocké et fausser le compteur d'appels.
+  it('la dernière tentative relit aussi avant de renommer, sous contention soutenue', async () => {
+    await updateGroups(file, (s) => createGroup(s, 'base', () => 'g-base'));
+
+    let calls = 0;
+    readFileOverride.current = (path) => {
+      calls += 1;
+      if (!path.endsWith('groups.json') || calls < 3 || calls > 5) return undefined;
+      const label = `ext${calls - 2}`;
+      const current = readFileSync(path, 'utf8');
+      writeFileSync(path, serializeGroups(createGroup(parseGroups(current), label, () => `g-${label}`)), 'utf8');
+      return Promise.resolve(readFileSync(path, 'utf8'));
+    };
+
+    const out = await updateGroups(file, (s) => createGroup(s, 'mine', () => 'g-mine'));
+
+    expect(out.groups.map((g) => g.name).sort()).toEqual(['base', 'ext1', 'ext2', 'ext3', 'mine']);
+  });
+
   // Tour de correction 1 (mécanisme 1) : réactivé. Ce test (verbatim du brief) échouait de
-  // façon reproductible contre la première implémentation — mesuré à 0/30 (voir l'historique de
-  // ce fichier et task-5-report.md). Ce n'était pas un défaut de mergeGroups/mergeAssignments
-  // (les tests ci-dessus prouvent qu'ils fusionnent correctement dès qu'on leur donne un
-  // instantané `latest` cohérent), mais l'absence de toute garantie que deux appels à
-  // `updateGroups` sur le même fichier, lancés depuis le même processus, ne s'exécutent jamais
-  // en même temps. `updateGroups` sérialise maintenant ces appels par fichier (`enqueue`) :
-  // exactement le cas que `Promise.all` exerce ici.
+  // façon reproductible contre la première implémentation — mesuré à 0/30 (voir task-5-report.md).
+  // Ce n'était pas un défaut de mergeGroups/mergeAssignments (les tests ci-dessus prouvent
+  // qu'ils fusionnent correctement dès qu'on leur donne un instantané `latest` cohérent), mais
+  // l'absence de toute garantie que deux appels à `updateGroups` sur le même fichier, lancés
+  // depuis le même processus, ne s'exécutent jamais en même temps. `updateGroups` sérialise
+  // maintenant ces appels par fichier (`enqueue`) : exactement le cas que `Promise.all` exerce
+  // ici.
   it('deux mises à jour concurrentes ne se perdent pas', async () => {
     await Promise.all([
       updateGroups(file, (s) => createGroup(s, 'a', () => 'ga')),

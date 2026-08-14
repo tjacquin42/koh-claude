@@ -4,7 +4,13 @@ import { emptyGroups, type Group, type GroupsState, parseGroups, serializeGroups
 
 let seq = 0;
 
-/** Nombre maximal de fusions tentées avant d'écrire malgré un changement détecté. */
+/**
+ * Nombre maximal de TOURS DE FUSION tentés (relire → fusionner → écrire → vérifier). Ne borne
+ * jamais le nombre de VÉRIFICATIONS : chaque tour, sans exception, relit juste avant de
+ * renommer. Si les `MAX_ATTEMPTS` tours ont tous vu un changement, un dernier tour fusionne
+ * l'état le plus frais et l'écrit sans relire une fois de plus — on sort de la boucle en ayant
+ * fusionné le plus récent, jamais en ignorant ce qu'on vient de lire.
+ */
 const MAX_ATTEMPTS = 3;
 
 /** Un classement illisible ou absent vaut « vide » : la vue s'affiche quoi qu'il arrive. */
@@ -18,6 +24,11 @@ export async function readGroups(file: string): Promise<GroupsState> {
  * coup) ne s'exécutent jamais en parallèle l'un de l'autre, le second attend la fin du premier.
  * Ne protège pas contre une AUTRE fenêtre (un autre processus) : `updateGroupsOnce` s'en charge
  * par sa propre relecture juste avant de renommer.
+ *
+ * La file ne reste jamais bloquée par un appel qui échoue : `run` peut rejeter (l'appelant de
+ * `updateGroups` reçoit l'erreur), mais l'entrée posée dans `queues` pour le PROCHAIN appel est
+ * dérivée d'une version de `run` dont le rejet est absorbé (`.then(ok, ok)`) — le prochain
+ * appel démarre donc quoi qu'il soit arrivé au précédent.
  */
 const queues = new Map<string, Promise<void>>();
 
@@ -47,10 +58,11 @@ function enqueue<T>(file: string, task: () => Promise<T>): Promise<T> {
  * ni l'un ni l'autre ne referme complètement :
  * 1. `enqueue` : deux appels sur le même fichier depuis CE processus ne courent jamais l'un
  *    contre l'autre.
- * 2. Une nouvelle tentative bornée dans `updateGroupsOnce` : juste avant de renommer, on relit
- *    une dernière fois ; si le fichier a changé depuis la fusion (une AUTRE fenêtre a écrit
- *    entre-temps), on refait la fusion à partir du nouveau contenu plutôt que d'écraser ce
- *    changement — jusqu'à `MAX_ATTEMPTS` tentatives, puis on écrit malgré tout.
+ * 2. `updateGroupsOnce` relit toujours juste avant de renommer, à chaque tour de fusion, sans
+ *    exception ; si le fichier a changé depuis la fusion (une AUTRE fenêtre a écrit
+ *    entre-temps), la fusion est rejouée à partir du nouveau contenu plutôt que d'écraser ce
+ *    changement — jusqu'à `MAX_ATTEMPTS` tours, le dernier fusionnant et écrivant l'état le
+ *    plus frais sans relire une fois de plus.
  */
 export function updateGroups(
   file: string,
@@ -67,33 +79,71 @@ async function updateGroupsOnce(
   const after = await fn(before);
 
   let latestRaw = await readRaw(file);
-  for (let attempt = 1; ; attempt++) {
-    const latest = toState(latestRaw);
-    const merged: GroupsState = {
-      ...after,
-      groups: mergeGroups(latest.groups, before.groups, after.groups),
-      assignments: mergeAssignments(latest.assignments, before.assignments, after.assignments),
-    };
-    const tmp = join(dirname(file), `.tmp-groups-${process.pid}-${(seq += 1)}`);
-    try {
-      await writeFile(tmp, serializeGroups(merged), 'utf8');
-      // Dernière relecture avant de renommer : si personne d'autre n'a écrit depuis `latest`,
-      // on commet. Sinon on refait la fusion à partir de ce nouveau contenu plutôt que
-      // d'écraser un changement qu'on vient de voir. Rétrécit la course, ne la ferme pas : entre
-      // CETTE lecture et le `rename` qui suit immédiatement, une autre écriture reste possible
-      // en théorie (fenêtre résiduelle documentée dans task-5-report.md).
-      const checkRaw = attempt < MAX_ATTEMPTS ? await readRaw(file) : latestRaw;
-      if (checkRaw === latestRaw) {
-        await rename(tmp, file);
-        return merged;
-      }
-      await unlink(tmp).catch(() => undefined);
-      latestRaw = checkRaw;
-    } catch (err) {
-      await unlink(tmp).catch(() => undefined);
-      throw err;
-    }
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const merged = merge(latestRaw, before, after);
+    const freshRaw = await writeIfUnchanged(file, merged, latestRaw);
+    if (freshRaw === undefined) return merged;
+    latestRaw = freshRaw;
   }
+
+  // Budget de tours de fusion épuisé : les `MAX_ATTEMPTS` relectures ont toutes vu un
+  // changement (contention réelle et soutenue). On ne relit pas une fois de plus — on
+  // fusionnerait à l'infini sans jamais commettre — mais `latestRaw` est déjà le contenu le
+  // plus frais qu'on ait observé : ce dernier tour fusionne CET état, puis écrit sans nouvelle
+  // vérification.
+  const merged = merge(latestRaw, before, after);
+  await writeUnconditionally(file, merged);
+  return merged;
+}
+
+function merge(latestRaw: string | undefined, before: GroupsState, after: GroupsState): GroupsState {
+  const latest = toState(latestRaw);
+  return {
+    ...after,
+    groups: mergeGroups(latest.groups, before.groups, after.groups),
+    assignments: mergeAssignments(latest.assignments, before.assignments, after.assignments),
+  };
+}
+
+/**
+ * Écrit `merged` dans un fichier temporaire, relit le fichier cible, et ne renomme que si son
+ * contenu est encore celui attendu (`expectedRaw`). Retourne `undefined` si le renommage a eu
+ * lieu (fusion commise), ou le contenu frais sinon (l'appelant doit refusionner avec).
+ */
+async function writeIfUnchanged(
+  file: string,
+  merged: GroupsState,
+  expectedRaw: string | undefined,
+): Promise<string | undefined> {
+  const tmp = tmpPath(file);
+  try {
+    await writeFile(tmp, serializeGroups(merged), 'utf8');
+    const checkRaw = await readRaw(file);
+    if (checkRaw === expectedRaw) {
+      await rename(tmp, file);
+      return undefined;
+    }
+    await unlink(tmp).catch(() => undefined);
+    return checkRaw;
+  } catch (err) {
+    await unlink(tmp).catch(() => undefined);
+    throw err;
+  }
+}
+
+async function writeUnconditionally(file: string, merged: GroupsState): Promise<void> {
+  const tmp = tmpPath(file);
+  try {
+    await writeFile(tmp, serializeGroups(merged), 'utf8');
+    await rename(tmp, file);
+  } catch (err) {
+    await unlink(tmp).catch(() => undefined);
+    throw err;
+  }
+}
+
+function tmpPath(file: string): string {
+  return join(dirname(file), `.tmp-groups-${process.pid}-${(seq += 1)}`);
 }
 
 function toState(raw: string | undefined): GroupsState {
