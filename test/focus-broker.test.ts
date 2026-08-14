@@ -35,11 +35,23 @@ function makeBroker(): FocusBroker {
   return b;
 }
 
+/**
+ * Pose les dossiers de l'espace de travail sur le bouchon de `vscode`.
+ *
+ * La vraie API les expose en LECTURE SEULE, et c'est bien contre elle que le
+ * typeur travaille — un bouchon qui divergerait de ses signatures ne prouverait
+ * plus rien. Cette vue étroite dit donc exactement ce qu'on force, et rien de
+ * plus : le jour où l'API changerait de forme, la ligne casserait ici.
+ */
+function setWorkspaceFolders(folders: readonly { uri: { fsPath: string } }[] | undefined): void {
+  (vscode.workspace as { workspaceFolders?: unknown }).workspaceFolders = folders;
+}
+
 beforeEach(async () => {
   home = mkdtempSync(join(tmpdir(), 'koh-broker-'));
   dirs = spoolDirs(home);
   await ensureDirs(dirs);
-  vscode.workspace.workspaceFolders = undefined;
+  setWorkspaceFolders(undefined);
   vi.restoreAllMocks();
   brokers = [];
 });
@@ -51,7 +63,7 @@ afterEach(() => {
 
 describe('FocusBroker.request', () => {
   it('révèle le panneau de la session (par son identifiant) quand la fenêtre courante la revendique', async () => {
-    vscode.workspace.workspaceFolders = [{ uri: { fsPath: '/Users/dev/projet' } }];
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
     const executeCommand = vi.spyOn(vscode.commands, 'executeCommand').mockResolvedValue(undefined);
     const broker = makeBroker();
 
@@ -61,7 +73,7 @@ describe('FocusBroker.request', () => {
   });
 
   it("n'exécute aucune commande pour une session terminal revendiquée localement — elle explique à la place", async () => {
-    vscode.workspace.workspaceFolders = [{ uri: { fsPath: '/Users/dev/projet' } }];
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
     const executeCommand = vi.spyOn(vscode.commands, 'executeCommand').mockResolvedValue(undefined);
     const showInformationMessage = vi.spyOn(vscode.window, 'showInformationMessage').mockResolvedValue(undefined);
     const broker = makeBroker();
@@ -97,21 +109,21 @@ describe('FocusBroker — consommation des requêtes (I3)', () => {
     let focusCalled = false;
     vi.spyOn(vscode.window, 'showInformationMessage').mockImplementation(() => {
       messageCalled = true;
-      return new Promise<string | undefined>(() => undefined);
+      return new Promise<undefined>(() => undefined);
     });
     vi.spyOn(vscode.commands, 'executeCommand').mockImplementation(async () => {
       focusCalled = true;
       return undefined;
     });
-    vscode.workspace.workspaceFolders = [{ uri: { fsPath: '/Users/dev/projet' } }];
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
 
     // La requête est écrite pendant que personne ne revendie encore (dossier
     // vide), pour forcer l'écriture d'un fichier plutôt qu'un focus direct.
-    vscode.workspace.workspaceFolders = undefined;
+    setWorkspaceFolders(undefined);
     const other = makeBroker();
     await other.request(session({ id: 's-cross' }));
 
-    vscode.workspace.workspaceFolders = [{ uri: { fsPath: '/Users/dev/projet' } }];
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
     const broker = makeBroker();
     const internal = broker as unknown as { consume: () => Promise<void> };
     await internal.consume();
@@ -122,16 +134,16 @@ describe('FocusBroker — consommation des requêtes (I3)', () => {
 
   it('nomme la session dans le message plutôt que rester générique (mineur T11)', async () => {
     let message: unknown;
-    vi.spyOn(vscode.window, 'showInformationMessage').mockImplementation((m: unknown) => {
+    vi.spyOn(vscode.window, 'showInformationMessage').mockImplementation((m: string) => {
       message = m;
-      return new Promise<string | undefined>(() => undefined);
+      return new Promise<undefined>(() => undefined);
     });
     vi.spyOn(vscode.commands, 'executeCommand').mockResolvedValue(undefined);
 
     const other = makeBroker();
     await other.request(session({ id: 's-cross', branch: 'feat-x' }));
 
-    vscode.workspace.workspaceFolders = [{ uri: { fsPath: '/Users/dev/projet' } }];
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
     const broker = makeBroker();
     const internal = broker as unknown as { consume: () => Promise<void> };
     await internal.consume();
@@ -147,7 +159,7 @@ describe('FocusBroker — consommation des requêtes (I3)', () => {
     const other = makeBroker();
     await other.request(session({ id: 's-cross' }));
 
-    vscode.workspace.workspaceFolders = [{ uri: { fsPath: '/Users/dev/autre-projet' } }];
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/autre-projet' } }]);
     const broker = makeBroker();
     const internal = broker as unknown as { consume: () => Promise<void> };
     await internal.consume();
@@ -162,7 +174,7 @@ describe('FocusBroker — consommation des requêtes (I3)', () => {
     const other = makeBroker();
     await other.request(session({ id: 'sess-1', origin: 'vscode' }));
 
-    vscode.workspace.workspaceFolders = [{ uri: { fsPath: '/Users/dev/projet' } }];
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
     const broker = makeBroker();
     const internal = broker as unknown as { consume: () => Promise<void> };
     await internal.consume();
@@ -177,7 +189,7 @@ describe('FocusBroker — consommation des requêtes (I3)', () => {
     const other = makeBroker();
     await other.request(session({ id: 's-term', origin: 'terminal' }));
 
-    vscode.workspace.workspaceFolders = [{ uri: { fsPath: '/Users/dev/projet' } }];
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
     const broker = makeBroker();
     const internal = broker as unknown as { consume: () => Promise<void> };
     await internal.consume();
@@ -192,7 +204,7 @@ describe('FocusBroker — consommation des requêtes (I3)', () => {
     const other = makeBroker();
     await other.request(session({ id: 's-term', origin: 'terminal' }));
 
-    vscode.workspace.workspaceFolders = [{ uri: { fsPath: '/Users/dev/projet' } }];
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
     const broker = makeBroker();
     const internal = broker as unknown as { consume: () => Promise<void> };
     await internal.consume();
@@ -210,7 +222,7 @@ describe('FocusBroker — consommation des requêtes (I3)', () => {
       'utf8',
     );
 
-    vscode.workspace.workspaceFolders = [{ uri: { fsPath: '/Users/dev/projet' } }];
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
     const broker = makeBroker();
     const internal = broker as unknown as { consume: () => Promise<void> };
     await internal.consume();

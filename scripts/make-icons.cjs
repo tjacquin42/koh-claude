@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * Fabrique les deux icônes de l'extension à partir du contour de Koh Rong.
+ * Fabrique les deux icônes de l'extension à partir d'un contour d'île.
  *
- * Le contour est relevé À LA MAIN sur une vue satellite de l'île — d'où la
- * table de points ci-dessous, qui est la SOURCE et non un sous-produit. Un SVG
- * dessiné directement se retoucherait au jugé ; ici, corriger la côte veut dire
- * corriger un point, et les deux icônes suivent ensemble.
+ * Le contour est relevé À LA MAIN — d'où la table de points ci-dessous, qui est
+ * la SOURCE et non un sous-produit. Un SVG dessiné directement se retoucherait
+ * au jugé ; ici, corriger la côte veut dire corriger un point, et les deux
+ * icônes suivent ensemble.
  *
  * Deux icônes, parce qu'elles ne sont pas regardées de la même façon :
  * - la barre d'activité affiche 24 px et recolore la forme : silhouette pleine,
@@ -17,7 +17,7 @@
 const { writeFileSync } = require('node:fs');
 const { join } = require('node:path');
 
-/** Le tour de l'île, dans le sens des aiguilles depuis la pointe nord (pixels de la vue source). */
+/** Le tour de l'île, dans le sens des aiguilles depuis la pointe nord (pixels de la source). */
 const OUTLINE = [
   [540, 25], [600, 60], [650, 140], [710, 168], [730, 100], [790, 140],
   [770, 232], [792, 300], [775, 420], [800, 470], [790, 560], [830, 610],
@@ -131,13 +131,14 @@ function smoothClosedPath(points, tension) {
 const resources = join(__dirname, '..', 'resources');
 
 // --- Barre d'activité : 24 px, monochrome, recolorée par VSCode ---
-// Le fichier s'appelle koh-rong.svg et non plus island.svg : l'icône est servie
-// au rendu par une URL de fichier, que l'éditeur met en cache. Le paquet gardant
-// toujours la même version et le même chemin, réinstaller ne changeait pas
-// l'URL — et l'ancien dessin restait affiché après un rechargement de fenêtre.
+// Renommer ce fichier est le SEUL moyen sûr de faire prendre un nouveau dessin :
+// l'icône est servie au rendu par une URL de fichier, que l'éditeur met en
+// cache, et le paquet garde toujours la même version et le même chemin. Sans
+// changement de nom, réinstaller ne change pas l'URL et l'ancien dessin reste
+// affiché, y compris après un rechargement de fenêtre.
 const small = smoothClosedPath(fit(dropSpikes(simplify(OUTLINE, 55), 42), 24, 1.2), 0.5);
 writeFileSync(
-  join(resources, 'koh-rong.svg'),
+  join(resources, 'logo-mono.svg'),
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
   <path d="${small}" fill="#000"/>
 </svg>
@@ -151,7 +152,7 @@ writeFileSync(
 // l'échelle ne s'éloigne pas de la côte, elle s'éloigne du centre.
 const big = smoothClosedPath(fit(OUTLINE, 256, 34), 0.7);
 writeFileSync(
-  join(resources, 'icon.svg'),
+  join(resources, 'logo.svg'),
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
   <defs>
     <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1">

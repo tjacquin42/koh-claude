@@ -19,7 +19,7 @@ const groups = (state: Partial<GroupsState>): GroupsState => ({
   groups: [],
   assignments: {},
   sessionOrder: {},
-  sessionSounds: {},
+  sessionSounds: { waiting: {}, done: {} },
   unknown: {},
   ...state,
 });
@@ -201,8 +201,8 @@ describe('SessionsTree — deux niveaux : dossiers puis sessions', () => {
     );
 
     const [groupNode, , unfiledNode] = await tree.getChildren();
-    expect(tree.getTreeItem(groupNode).contextValue).toBe('group');
-    expect(tree.getTreeItem(unfiledNode).contextValue).toBe('unfiled');
+    expect(tree.getTreeItem(groupNode!).contextValue).toBe('group');
+    expect(tree.getTreeItem(unfiledNode!).contextValue).toBe('unfiled');
   });
 
   it('l état vide global est inchangé quand il n y a aucune session', async () => {
@@ -317,7 +317,7 @@ describe('SessionsTree — espace et couleur des dossiers', () => {
       { id: 'g-2', name: 'Deux', order: 1 },
     ]);
     const [, spacer] = await tree.getChildren();
-    const item = tree.getTreeItem(spacer);
+    const item = tree.getTreeItem(spacer!);
     expect(item.command).toBeUndefined();
     expect(item.contextValue).toBeUndefined();
     expect(await tree.getChildren(spacer)).toEqual([]);
@@ -326,7 +326,7 @@ describe('SessionsTree — espace et couleur des dossiers', () => {
   it('colore l\'icône du dossier avec la couleur choisie', async () => {
     const tree = withGroups([{ id: 'g-1', name: 'Un', order: 0, color: 'green' }]);
     const [node] = await tree.getChildren();
-    const icon = tree.getTreeItem(node).iconPath as { id: string; color?: { id: string } };
+    const icon = tree.getTreeItem(node!).iconPath as { id: string; color?: { id: string } };
     expect(icon.id).toBe('symbol-folder');
     expect(icon.color?.id).toBe('charts.green');
   });
@@ -335,7 +335,7 @@ describe('SessionsTree — espace et couleur des dossiers', () => {
     for (const color of [undefined, 'turquoise']) {
       const tree = withGroups([{ id: 'g-1', name: 'Un', order: 0, color }]);
       const [node] = await tree.getChildren();
-      const icon = tree.getTreeItem(node).iconPath as { id: string; color?: { id: string } };
+      const icon = tree.getTreeItem(node!).iconPath as { id: string; color?: { id: string } };
       expect(icon.id).toBe('symbol-folder');
       expect(icon.color).toBeUndefined();
     }
@@ -346,7 +346,7 @@ describe('SessionsTree — espace et couleur des dossiers', () => {
     tree.setSessions(new Map([['s1', session('s1')]]));
     tree.setGroups(groups({ groups: [] }));
     const [node] = await tree.getChildren();
-    const icon = tree.getTreeItem(node).iconPath as { id: string; color?: { id: string } };
+    const icon = tree.getTreeItem(node!).iconPath as { id: string; color?: { id: string } };
     expect(icon.color).toBeUndefined();
   });
 });
@@ -572,7 +572,7 @@ describe('identité des lignes — ce qui permet à une infobulle de survivre', 
     // nous en construisons de neufs à chaque tour : un seul rafraîchissement
     // faisait détruire et refaire TOUTES les lignes, emportant l infobulle
     // qu on était en train de lire.
-    const s = session('s1', 'running');
+    const s = session('s1', { status: 'running' });
     const group = { kind: 'group' as const, group: { id: 'g1', name: 'Perso', order: 0 }, sessions: [s] };
     expect(nodeId(group)).toBe('group:g1');
     expect(nodeId({ kind: 'session', session: s })).toBe('session:s1');
@@ -586,8 +586,8 @@ describe('identité des lignes — ce qui permet à une infobulle de survivre', 
       async () => true,
       async () => undefined,
     );
-    tree.setSessions(new Map([['s1', session('s1', 'running')]]));
-    const nodes = [{ kind: 'session' as const, session: session('s1', 'running') }];
+    tree.setSessions(new Map([['s1', session('s1', { status: 'running' })]]));
+    const nodes = [{ kind: 'session' as const, session: session('s1', { status: 'running' }) }];
     expect(tree.getTreeItem(nodes[0]!).id).toBe('session:s1');
   });
 

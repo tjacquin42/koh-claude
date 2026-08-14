@@ -1,7 +1,7 @@
 {
   "name": "koh-vibe",
   "displayName": "Koh-Vibe",
-  "description": "Tableau de bord des sessions Claude Code",
+  "description": "Toutes vos sessions Claude Code dans une seule vue : statut en direct, dossiers, consommation et carillons.",
   "version": "0.1.0",
   "publisher": "tjacquin42",
   "license": "MIT",
@@ -10,21 +10,22 @@
   "homepage": "https://github.com/tjacquin42/koh-vibe#readme",
   "engines": { "vscode": "^1.94.0", "node": ">=22" },
   "categories": ["Other"],
-  "icon": "resources/icon.png",
+  "keywords": ["claude", "claude code", "anthropic", "sessions", "tableau de bord", "dashboard", "hooks"],
+  "icon": "resources/logo.png",
   "galleryBanner": { "color": "#0A1F28", "theme": "dark" },
   "main": "./out/extension.js",
   "activationEvents": ["onStartupFinished"],
   "contributes": {
     "viewsContainers": {
       "activitybar": [
-        { "id": "koh-vibe", "title": "Koh-Vibe", "icon": "resources/koh-rong.svg" }
+        { "id": "koh-vibe", "title": "Koh-Vibe", "icon": "resources/logo-mono.svg" }
       ]
     },
     "views": {
       "koh-vibe": [
-        { "id": "kohVibe.sessions", "name": "Sessions", "icon": "resources/koh-rong.svg", "initialSize": 20 },
-        { "id": "kohVibe.usage", "name": "Consommation", "type": "webview", "icon": "resources/koh-rong.svg", "initialSize": 3 },
-        { "id": "kohVibe.settings", "name": "Réglages", "icon": "resources/koh-rong.svg", "initialSize": 4 }
+        { "id": "kohVibe.sessions", "name": "Sessions", "icon": "resources/logo-mono.svg", "initialSize": 20 },
+        { "id": "kohVibe.usage", "name": "Consommation", "type": "webview", "icon": "resources/logo-mono.svg", "initialSize": 3 },
+        { "id": "kohVibe.settings", "name": "Réglages", "icon": "resources/logo-mono.svg", "initialSize": 4 }
       ]
     },
     "commands": [
@@ -70,7 +71,9 @@
     }
   },
   "scripts": {
+    "vscode:prepublish": "pnpm build",
     "build": "node scripts/stamp-build.cjs && tsc -p .",
+    "typecheck": "tsc -p tsconfig.test.json",
     "watch": "tsc -w -p .",
     "test": "vitest run",
     "package": "vsce package --no-dependencies"

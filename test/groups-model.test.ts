@@ -79,7 +79,7 @@ describe('createGroup', () => {
   });
 
   it('coupe les espaces autour du nom', () => {
-    expect(createGroup(emptyGroups(), '  Vetibble  ', () => 'a').groups[0]?.name).toBe('Vetibble');
+    expect(createGroup(emptyGroups(), '  Boutique  ', () => 'a').groups[0]?.name).toBe('Boutique');
   });
 
   it('accepte deux dossiers de même nom, avec des identifiants distincts', () => {

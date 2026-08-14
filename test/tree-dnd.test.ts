@@ -128,6 +128,7 @@ describe('SessionsTree — handleDrop (la décision, pas le mécanisme VSCode)',
       groups: [{ id: 'g1', name: 'Dossier', order: 0 }],
       assignments: { s1: 'g1', s2: 'g1', s3: 'g1' },
       sessionOrder: { g1: ['s1', 's2', 's3'] },
+      sessionSounds: { waiting: {}, done: {} },
       unknown: {},
     });
 
@@ -146,6 +147,7 @@ describe('SessionsTree — handleDrop (la décision, pas le mécanisme VSCode)',
       groups: [{ id: 'g1', name: 'Dossier', order: 0 }],
       assignments: { s1: 'g1', s2: 'g1' },
       sessionOrder: { g1: ['s1', 's2'] },
+      sessionSounds: { waiting: {}, done: {} },
       unknown: {},
     });
 

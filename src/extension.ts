@@ -9,7 +9,7 @@ import { defaultSettings, type AppSettings } from './settings/model';
 import { migrateLegacyHome } from './store/migrate';
 import { readUsage, refreshFromApi } from './usage/reader';
 import { chimeFor, statusesOf, type ChimeEvent } from './sound/model';
-import { availableSounds, clampVolume, DEFAULT_VOLUME, NO_SOUND, playFile, playNamed } from './sound/player';
+import { availableSounds, clampVolume, NO_SOUND, playFile, playNamed } from './sound/player';
 import { EVENT_TITLE, FooterTree, type SoundSettings } from './ui/footer-tree';
 import { UsageView } from './ui/usage-view';
 import { ensureDirs, readSessions, removeSession } from './spool/persist';
@@ -21,7 +21,7 @@ import {
 } from './groups/commands';
 import { colorChoice, GROUP_COLORS, NO_COLOR_LABEL } from './ui/colors';
 import { readGroups } from './groups/store';
-import { soundFor } from './groups/model';
+import { CHIME_EVENTS, soundFor } from './groups/model';
 import { installedCount, installLibrary, LIBRARY, librarySoundsDir, removeLibrary } from './sound/library';
 import type { TranscriptStats } from './transcript/reader';
 import { withTokens } from './transcript/tokens';
@@ -159,14 +159,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // ailleurs dans l'éditeur.
     replay = () => hear(picker.activeItems[0]?.label);
     await vscode.commands.executeCommand('setContext', PICKING_SOUND, true);
-    const chosen = await new Promise<string | undefined>((resolve) => {
-      picker.onDidAccept(() => resolve(picker.selectedItems[0]?.label));
-      picker.onDidHide(() => resolve(undefined));
-      picker.show();
-    });
-    replay = undefined;
-    await vscode.commands.executeCommand('setContext', PICKING_SOUND, false);
-    picker.dispose();
+    let chosen: string | undefined;
+    try {
+      chosen = await new Promise<string | undefined>((resolve) => {
+        picker.onDidAccept(() => resolve(picker.selectedItems[0]?.label));
+        picker.onDidHide(() => resolve(undefined));
+        picker.show();
+      });
+    } finally {
+      // Quoi qu'il arrive : un contexte resté levé rendrait la flèche droite
+      // inerte dans tout l'éditeur, sans que rien ne dise pourquoi.
+      replay = undefined;
+      await vscode.commands.executeCommand('setContext', PICKING_SOUND, false);
+      picker.dispose();
+    }
     if (chosen === undefined) return undefined;
     if (chosen === inherit) return { sound: undefined };
     return { sound: chosen === 'Aucun' ? NO_SOUND : chosen };
@@ -483,7 +489,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Deux commandes par niveau, une par événement, plutôt qu'une seule qui
     // demanderait ensuite « lequel ? » : le menu doit dire ce qu'on va régler
     // avant de l'ouvrir, sinon on choisit un son sans savoir quand il sonnera.
-    ...(['waiting', 'done'] as const).flatMap((event) => [
+    ...CHIME_EVENTS.flatMap((event) => [
       vscode.commands.registerCommand(`kohVibe.soundGroup.${event}`, async (node: unknown) => {
         const id = groupIdOfNode(node);
         if (id === undefined) return;
