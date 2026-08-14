@@ -5,12 +5,24 @@ export interface TranscriptStats {
   input: number;
   output: number;
   branch?: string;
+  /** Titre choisi par l'utilisateur. Prime toujours. */
+  customTitle?: string;
+  /** Dernier titre engendré par Claude. */
+  aiTitle?: string;
+  /** Dérivé : `customTitle ?? aiTitle`. Le seul champ que l'affichage consomme. */
+  title?: string;
 }
 
 const EMPTY: TranscriptStats = { offset: 0, input: 0, output: 0 };
 
 function num(v: unknown): number {
   return typeof v === 'number' && Number.isFinite(v) ? v : 0;
+}
+
+function text(v: unknown): string | undefined {
+  if (typeof v !== 'string') return undefined;
+  const t = v.trim();
+  return t.length > 0 ? t : undefined;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -67,7 +79,16 @@ export async function readTranscript(path: string, from?: TranscriptStats): Prom
       const branch = entry['gitBranch'];
       if (typeof branch === 'string' && branch.length > 0) stats.branch = branch;
 
-      if (entry['type'] !== 'assistant') continue;
+      const type = entry['type'];
+      if (type === 'custom-title') {
+        const t = text(entry['customTitle']);
+        if (t !== undefined) stats.customTitle = t;
+      } else if (type === 'ai-title') {
+        const t = text(entry['aiTitle']);
+        if (t !== undefined) stats.aiTitle = t;
+      }
+
+      if (type !== 'assistant') continue;
       const message = entry['message'];
       if (!isRecord(message)) continue;
       const usage = message['usage'];
@@ -77,6 +98,7 @@ export async function readTranscript(path: string, from?: TranscriptStats): Prom
       stats.output += num(usage['output_tokens']);
     }
 
+    stats.title = stats.customTitle ?? stats.aiTitle;
     return stats;
   } finally {
     await handle.close();

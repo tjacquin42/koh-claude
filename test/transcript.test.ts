@@ -55,6 +55,18 @@ afterEach(() => {
   openOverride.current = undefined;
 });
 
+// Utilitaires pour les tests de titre : écrivent des lignes JSONL brutes dans
+// le fichier temporaire du test courant, sans passer par le format des
+// entrées `assistant` ci-dessus.
+const fixture = async (lines: string[]): Promise<string> => {
+  await writeFile(file, lines.map((l) => `${l}\n`).join(''));
+  return file;
+};
+
+const appendLine = (path: string, line: string): Promise<void> => appendFile(path, `${line}\n`);
+
+const rewrite = (path: string, lines: string[]): Promise<void> => writeFile(path, lines.map((l) => `${l}\n`).join(''));
+
 describe('readTranscript', () => {
   it('somme les tokens et retient la branche', async () => {
     await writeFile(file, assistant(100, 20) + assistant(50, 5));
@@ -136,5 +148,50 @@ describe('readTranscript', () => {
 
     expect(stats.input).toBe(10);
     expect(stats.output).toBe(1);
+  });
+});
+
+describe('readTranscript — titre de la conversation', () => {
+  it('retient le dernier ai-title vu', async () => {
+    const p = await fixture(['{"type":"ai-title","aiTitle":"un"}', '{"type":"ai-title","aiTitle":"deux"}']);
+    expect((await readTranscript(p)).title).toBe('deux');
+  });
+
+  it('customTitle prime sur ai-title, même écrit avant', async () => {
+    const p = await fixture(['{"type":"custom-title","customTitle":"#à moi"}', '{"type":"ai-title","aiTitle":"engendré"}']);
+    expect((await readTranscript(p)).title).toBe('#à moi');
+  });
+
+  it('pas de titre quand le transcript n en porte aucun', async () => {
+    const p = await fixture(['{"type":"user","message":{"role":"user","content":"x"}}']);
+    expect((await readTranscript(p)).title).toBeUndefined();
+  });
+
+  it('un titre vide ou fait d espaces ne compte pas', async () => {
+    const p = await fixture(['{"type":"ai-title","aiTitle":"   "}']);
+    expect((await readTranscript(p)).title).toBeUndefined();
+  });
+
+  it('conserve le titre au fil des lectures incrémentales', async () => {
+    const p = await fixture(['{"type":"ai-title","aiTitle":"posé tôt"}']);
+    const un = await readTranscript(p);
+    await appendLine(p, '{"type":"assistant","message":{"usage":{"input_tokens":1,"output_tokens":1}}}');
+    expect((await readTranscript(p, un)).title).toBe('posé tôt');
+  });
+
+  it('oublie le titre quand le transcript rétrécit', async () => {
+    const p = await fixture(['{"type":"ai-title","aiTitle":"ancien"}']);
+    const un = await readTranscript(p);
+    // Rétrécit réellement en octets (16 < 39) : le contenu du brief
+    // (`{"type":"user","message":{"role":"user","content":"neuf"}}`, 59
+    // octets) est plus long que la ligne d'origine et ne déclenche donc pas
+    // le mécanisme de reset existant, basé sur la taille du fichier.
+    await rewrite(p, ['{"type":"user"}']);
+    expect((await readTranscript(p, un)).title).toBeUndefined();
+  });
+
+  it('reprend le dernier customTitle sur un transcript réaliste (fixture titles.jsonl)', async () => {
+    const stats = await readTranscript('test/fixtures/transcripts/titles.jsonl');
+    expect(stats.title).toBe('#Mon titre');
   });
 });

@@ -1,0 +1,6 @@
+{"type":"user","sessionId":"s1","message":{"role":"user","content":"salut"}}
+{"type":"ai-title","sessionId":"s1","aiTitle":"Premier titre engendré"}
+{"type":"assistant","sessionId":"s1","message":{"usage":{"input_tokens":10,"output_tokens":4}}}
+{"type":"ai-title","sessionId":"s1","aiTitle":"Titre engendré plus récent"}
+{"type":"custom-title","sessionId":"s1","customTitle":"#Mon titre"}
+{"type":"assistant","sessionId":"s1","message":{"usage":{"input_tokens":5,"output_tokens":2}}}
