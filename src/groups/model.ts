@@ -38,6 +38,7 @@ export function parseGroups(raw: string): GroupsState {
   if (!isRecord(root)) return emptyGroups();
 
   const groups: Group[] = [];
+  const seenIds = new Set<string>();
   const rawGroups = root['groups'];
   if (Array.isArray(rawGroups)) {
     for (const [i, g] of rawGroups.entries()) {
@@ -45,6 +46,8 @@ export function parseGroups(raw: string): GroupsState {
       const id = name(g['id']);
       const label = name(g['name']);
       if (id === undefined || label === undefined) continue;
+      if (seenIds.has(id)) continue;
+      seenIds.add(id);
       const order = typeof g['order'] === 'number' && Number.isFinite(g['order']) ? g['order'] : i;
       groups.push({ id, name: label, order });
     }

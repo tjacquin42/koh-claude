@@ -31,6 +31,39 @@ describe('parseGroups', () => {
     }));
     expect(s.assignments).toEqual({ s1: 'g1' });
   });
+
+  it('déduplique les dossiers de même identifiant, garde la première occurrence', () => {
+    const s = parseGroups(JSON.stringify({
+      groups: [
+        { id: 'g1', name: 'premier', order: 0 },
+        { id: 'g1', name: 'second', order: 1 },
+      ],
+      assignments: {},
+    }));
+    expect(s.groups).toHaveLength(1);
+    expect(s.groups[0]?.name).toBe('premier');
+  });
+
+  it('ignore un champ groups qui n est pas un tableau', () => {
+    const s = parseGroups(JSON.stringify({ groups: 'pas un tableau', assignments: {} }));
+    expect(s.groups).toEqual([]);
+  });
+
+  it('ignore un champ assignments qui est une chaîne', () => {
+    const s = parseGroups(JSON.stringify({
+      groups: [{ id: 'g1', name: 'bon', order: 0 }],
+      assignments: 'pas un objet',
+    }));
+    expect(s.assignments).toEqual({});
+  });
+
+  it('garde une affectation dont la clé de session est vide', () => {
+    const s = parseGroups(JSON.stringify({
+      groups: [{ id: 'g1', name: 'bon', order: 0 }],
+      assignments: { '': 'g1' },
+    }));
+    expect(s.assignments).toEqual({ '': 'g1' });
+  });
 });
 
 describe('createGroup', () => {
