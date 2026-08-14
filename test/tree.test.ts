@@ -30,10 +30,19 @@ const noopOnDrop = async (): Promise<void> => undefined;
 // Les tests affirment la liste des libellés effectivement rendus (via
 // getTreeItem), pas un simple compte de nœuds : un compte ne dit rien de
 // l'ordre ni du contenu, deux propriétés que ces règles portent explicitement.
+// Le pied de vue — séparateur, réglage du son, consommation — est TOUJOURS
+// présent, même sans aucune session : ce sont des réglages, pas des
+// conversations. Ces tests-ci portent sur la liste, il est donc retiré ici et
+// éprouvé à part (voir « pied de vue » plus bas).
+const FOOT = 3;
+
 const labelsOf = async (tree: SessionsTree, node?: TreeNode): Promise<string[]> => {
   const children = await tree.getChildren(node);
-  return children.map((child) => String(tree.getTreeItem(child).label));
+  const shown = node === undefined ? children.slice(0, -FOOT) : children;
+  return shown.map((child) => String(tree.getTreeItem(child).label));
 };
+
+const bodyOf = async (tree: SessionsTree): Promise<TreeNode[]> => (await tree.getChildren()).slice(0, -FOOT);
 
 // I5 : l'état « hooks installés » ne doit être recalculé que lorsqu'il est
 // réellement consulté — c'est-à-dire quand l'arbre s'apprête à afficher son
@@ -48,7 +57,7 @@ describe('SessionsTree — hooksInstalled recalculé à la demande (I5)', () => 
     const tree = new SessionsTree(checkHooksInstalled, noopOnDrop);
     tree.setSessions(new Map([['s1', session('s1')]]));
 
-    const children = await tree.getChildren();
+    const children = await bodyOf(tree);
 
     expect(checkHooksInstalled).not.toHaveBeenCalled();
     expect(children).toEqual([{ kind: 'group', group: undefined, sessions: [session('s1')] }]);
@@ -58,7 +67,7 @@ describe('SessionsTree — hooksInstalled recalculé à la demande (I5)', () => 
     const checkHooksInstalled = vi.fn().mockResolvedValue(false);
     const tree = new SessionsTree(checkHooksInstalled, noopOnDrop);
 
-    const children = await tree.getChildren();
+    const children = await bodyOf(tree);
 
     expect(checkHooksInstalled).toHaveBeenCalledTimes(1);
     expect(children).toEqual([
@@ -70,12 +79,12 @@ describe('SessionsTree — hooksInstalled recalculé à la demande (I5)', () => 
     const checkHooksInstalled = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
     const tree = new SessionsTree(checkHooksInstalled, noopOnDrop);
 
-    const before = await tree.getChildren();
+    const before = await bodyOf(tree);
     expect(before).toEqual([
       { kind: 'empty', message: 'Hooks non installés — cliquez pour les installer', action: 'install' },
     ]);
 
-    const after = await tree.getChildren();
+    const after = await bodyOf(tree);
 
     expect(after).toEqual([{ kind: 'empty', message: 'Aucune session Claude Code active' }]);
     expect(checkHooksInstalled).toHaveBeenCalledTimes(2);
@@ -87,7 +96,7 @@ describe('SessionsTree — hooksInstalled recalculé à la demande (I5)', () => 
 
     await tree.getChildren(); // aucune session : interroge, affiche « non installés »
     tree.setSessions(new Map([['s1', session('s1')]]));
-    const children = await tree.getChildren();
+    const children = await bodyOf(tree);
 
     expect(children).toEqual([{ kind: 'group', group: undefined, sessions: [session('s1')] }]);
     expect(checkHooksInstalled).toHaveBeenCalledTimes(1); // pas un second appel
@@ -207,7 +216,7 @@ describe('SessionsTree — deux niveaux : dossiers puis sessions', () => {
     const tree = new SessionsTree(checkHooksInstalled, noopOnDrop);
     tree.setGroups(groups({ groups: [{ id: 'g1', name: 'Dossier', order: 0 }] }));
 
-    const children = await tree.getChildren();
+    const children = await bodyOf(tree);
 
     expect(children).toEqual([{ kind: 'empty', message: 'Aucune session Claude Code active' }]);
     expect(checkHooksInstalled).toHaveBeenCalledTimes(1);
@@ -302,7 +311,8 @@ describe('SessionsTree — espace et couleur des dossiers', () => {
       { id: 'g-2', name: 'Deux', order: 1 },
       { id: 'g-3', name: 'Trois', order: 2 },
     ]);
-    const spacers = (await tree.getChildren()).filter((n) => n.kind === 'spacer');
+    // Le pied de vue en apporte un troisième, qui sépare la liste des réglages.
+    const spacers = (await bodyOf(tree)).filter((n) => n.kind === 'spacer');
     expect(spacers).toHaveLength(2);
     expect(new Set(spacers.map((n) => (n.kind === 'spacer' ? n.after : ''))).size).toBe(2);
   });
@@ -478,12 +488,15 @@ describe('SessionsTree — la couleur atteint le libellé, pas seulement l icôn
     expect(uri?.query).toBe('c=charts.green');
   });
 
-  it('fait descendre la couleur sur les sessions de ce dossier', async () => {
+  it('ne colore JAMAIS une session, même dans un dossier coloré', async () => {
+    // Deux raisons, et la seconde est un piège : la teinte du dossier répétée
+    // sur chaque conversation noyait la lecture, et le resourceUri qu'elle
+    // exigeait décalait le libellé de ces lignes-là par rapport aux autres.
     const tree = colored();
     const [group] = await tree.getChildren();
-    const [child] = await tree.getChildren(group!);
-    const uri = tree.getTreeItem(child!).resourceUri as { query: string } | undefined;
-    expect(uri?.query).toBe('c=charts.green');
+    for (const child of await tree.getChildren(group!)) {
+      expect(tree.getTreeItem(child).resourceUri).toBeUndefined();
+    }
   });
 
   it('ne pose aucune URI sur un dossier sans couleur, ni sur ses sessions', async () => {
@@ -493,5 +506,61 @@ describe('SessionsTree — la couleur atteint le libellé, pas seulement l icôn
     expect(tree.getTreeItem(plain!).resourceUri).toBeUndefined();
     const [child] = await tree.getChildren(plain!);
     expect(tree.getTreeItem(child!).resourceUri).toBeUndefined();
+  });
+});
+
+describe('SessionsTree — pied de vue : son puis consommation', () => {
+  const footOf = async (tree: SessionsTree): Promise<TreeNode[]> =>
+    (await tree.getChildren()).slice(-FOOT);
+
+  const withSessions = (): SessionsTree => {
+    const tree = new SessionsTree(() => Promise.resolve(true), noopOnDrop);
+    tree.setSessions(new Map([['s1', session('s1')]]));
+    tree.setGroups(groups({}));
+    return tree;
+  };
+
+  it('place le son puis la consommation tout en bas, dans cet ordre', async () => {
+    expect((await footOf(withSessions())).map((n) => n.kind)).toEqual(['spacer', 'sound', 'usage']);
+  });
+
+  it('les garde même sans aucune session — ce sont des réglages, pas des conversations', async () => {
+    const tree = new SessionsTree(() => Promise.resolve(true), noopOnDrop);
+    expect((await footOf(tree)).map((n) => n.kind)).toEqual(['spacer', 'sound', 'usage']);
+  });
+
+  it('affiche la consommation même sans mesure : c est cette ligne qui porte le rafraîchissement', async () => {
+    const tree = withSessions();
+    const [, , usage] = await footOf(tree);
+    const item = tree.getTreeItem(usage!);
+    expect(String(item.label)).toBe('Consommation : inconnue');
+    expect(item.command?.command).toBe('kohVibe.refreshUsage');
+  });
+
+  it('rend la ligne du son cliquable, et dit l état courant', async () => {
+    const tree = withSessions();
+    tree.setSound('Ping');
+    const [, sound] = await footOf(tree);
+    const item = tree.getTreeItem(sound!);
+    expect(String(item.label)).toBe('Son : Ping');
+    expect(item.command?.command).toBe('kohVibe.chooseSound');
+  });
+
+  it('donne une couleur explicite aux deux pastilles du pied, comme aux statuts', async () => {
+    // Même invariant que les pastilles de statut : une icône sans couleur est
+    // rendue par un autre chemin et son libellé se décale.
+    const tree = withSessions();
+    for (const node of (await footOf(tree)).filter((n) => n.kind !== 'spacer')) {
+      const icon = tree.getTreeItem(node).iconPath as { color?: { id: string } };
+      expect(icon.color?.id).toBeTruthy();
+    }
+  });
+
+  it('ne fait du pied ni une cible de dépôt ni un dossier', async () => {
+    const tree = withSessions();
+    for (const node of await footOf(tree)) {
+      expect(groupIdOfNode(node)).toBeUndefined();
+      expect(await tree.getChildren(node)).toEqual([]);
+    }
   });
 });

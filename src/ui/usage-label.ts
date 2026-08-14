@@ -10,8 +10,16 @@ function windowText(label: string, w: UsageWindow | undefined): string | undefin
   return w === undefined ? undefined : `${label} ${Math.round(w.percent)} %`;
 }
 
-/** « 5 h 78 % · 7 j 32 % » — et seulement les fenêtres réellement mesurées. */
-export function usageLabel(u: Usage): string {
+/**
+ * « 5 h 78 % · 7 j 32 % » — et seulement les fenêtres réellement mesurées.
+ *
+ * Sans mesure, la ligne existe quand même et le dit : elle porte le bouton de
+ * rafraîchissement, et la faire disparaître retirerait justement le moyen de la
+ * remplir.
+ */
+export function usageLabel(r: UsageReading | undefined): string {
+  if (r === undefined) return 'Consommation : inconnue';
+  const u = r.usage;
   const parts = [windowText('5 h', u.fiveHour), windowText('7 j', u.sevenDay)].filter(
     (p): p is string => p !== undefined,
   );
@@ -34,7 +42,13 @@ const SOURCE_FR: Record<UsageReading['source'], string> = {
   'vibe-island': 'Vibe Island',
 };
 
-export function usageTooltip(r: UsageReading, now: number): string {
+export function usageTooltip(r: UsageReading | undefined, now: number): string {
+  if (r === undefined) {
+    return [
+      "Aucune mesure de consommation pour l'instant.",
+      'Cliquez pour rafraîchir.',
+    ].join('\n');
+  }
   const u = r.usage;
   const lines: string[] = [];
   if (u.fiveHour !== undefined) {
@@ -46,6 +60,7 @@ export function usageTooltip(r: UsageReading, now: number): string {
   // La provenance et l'âge sont dits, pas devinés : les deux sources se taisent
   // tour à tour, et un pourcentage sans date laisserait croire qu'il est frais.
   lines.push(`Source : ${SOURCE_FR[r.source]}, il y a ${formatAge(Math.max(0, now - r.at))}`);
+  lines.push('Cliquez pour rafraîchir.');
   return lines.join('\n');
 }
 

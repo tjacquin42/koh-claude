@@ -31,8 +31,20 @@
       { "command": "kohVibe.newGroup", "title": "Créer un dossier", "category": "Koh-Vibe", "icon": "$(new-folder)" },
       { "command": "kohVibe.renameGroup", "title": "Renommer le dossier", "category": "Koh-Vibe" },
       { "command": "kohVibe.colorGroup", "title": "Couleur du dossier", "category": "Koh-Vibe" },
-      { "command": "kohVibe.deleteGroup", "title": "Supprimer le dossier", "category": "Koh-Vibe" }
+      { "command": "kohVibe.deleteGroup", "title": "Supprimer le dossier", "category": "Koh-Vibe" },
+      { "command": "kohVibe.chooseSound", "title": "Son des changements de statut", "category": "Koh-Vibe" },
+      { "command": "kohVibe.refreshUsage", "title": "Rafraîchir la consommation", "category": "Koh-Vibe" }
     ],
+    "configuration": {
+      "title": "Koh-Vibe",
+      "properties": {
+        "kohVibe.statusSound": {
+          "type": "string",
+          "default": "",
+          "description": "Son joué quand une session passe à « t'attend » ou « terminé ». Vide = aucun son. Nom d'un son système macOS (/System/Library/Sounds), sans extension."
+        }
+      }
+    },
     "menus": {
       "view/title": [
         { "command": "kohVibe.refresh", "when": "view == kohVibe.sessions", "group": "navigation" },

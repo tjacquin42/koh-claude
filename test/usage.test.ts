@@ -6,6 +6,8 @@ import { parseUsage } from '../src/usage/model';
 import { readUsage } from '../src/usage/reader';
 import { usageColor, usageLabel, usageTooltip } from '../src/ui/usage-label';
 
+const reading = (raw: unknown, at = 0) => ({ usage: parseUsage(raw)!, source: 'statusline' as const, at });
+
 const REAL = {
   rate_limits: {
     five_hour: { used_percentage: 78, resets_at: 1786297800 },
@@ -55,15 +57,15 @@ describe('parseUsage', () => {
 
 describe('usageLabel', () => {
   it('résume les deux fenêtres', () => {
-    expect(usageLabel(parseUsage(REAL)!)).toBe('5 h 78 % · 7 j 32 %');
+    expect(usageLabel(reading(REAL))).toBe('5 h 78 % · 7 j 32 %');
   });
 
   it('n affiche que la fenêtre mesurée quand l autre manque', () => {
-    expect(usageLabel(parseUsage({ rate_limits: { seven_day: { used_percentage: 4 } } })!)).toBe('7 j 4 %');
+    expect(usageLabel(reading({ rate_limits: { seven_day: { used_percentage: 4 } } }))).toBe('7 j 4 %');
   });
 
   it('arrondit plutôt que d afficher une décimale de pourcentage', () => {
-    expect(usageLabel(parseUsage({ rate_limits: { five_hour: { used_percentage: 78.4 } } })!)).toBe('5 h 78 %');
+    expect(usageLabel(reading({ rate_limits: { five_hour: { used_percentage: 78.4 } } }))).toBe('5 h 78 %');
   });
 });
 
@@ -90,7 +92,6 @@ describe('usageColor', () => {
 });
 
 describe('usageTooltip', () => {
-  const reading = (raw: unknown, at = 0) => ({ usage: parseUsage(raw)!, source: 'statusline' as const, at });
 
   it('convertit l échéance en secondes, pas en millisecondes', () => {
     // 1786297800 s vaut 2026-08-14T18:30:00Z ; une lecture en millisecondes

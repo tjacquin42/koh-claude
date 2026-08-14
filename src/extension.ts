@@ -6,6 +6,8 @@ import * as vscode from 'vscode';
 import { groupsFile, kohVibeHome, legacyHome, spoolDirs } from './paths';
 import { migrateLegacyHome } from './store/migrate';
 import { readUsage } from './usage/reader';
+import { shouldChime, statusesOf } from './sound/model';
+import { availableSounds, NO_SOUND, playSound } from './sound/player';
 import { ensureDirs, readSessions } from './spool/persist';
 import { SpoolWatcher } from './spool/watcher';
 import { pruneAssignmentsAfterPurge } from './groups/purge';
@@ -66,6 +68,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await render();
   }
 
+  /**
+   * Le son choisi, relu à chaque usage plutôt que capté au démarrage : il vit
+   * dans les réglages VSCode, donc modifiable depuis l'interface des réglages
+   * autant que depuis notre ligne.
+   */
+  function currentSound(): string {
+    const value = vscode.workspace.getConfiguration('kohVibe').get('statusSound');
+    return typeof value === 'string' ? value : NO_SOUND;
+  }
+
+  // Référence du tour précédent pour le carillon. `undefined` = premier rendu :
+  // tout y ressemblerait à une transition, et l'éditeur carillonnerait à chaque
+  // ouverture de fenêtre pour des sessions parfois vieilles de plusieurs heures.
+  let lastStatuses: Map<string, Session['status']> | undefined;
+
   const tree = new SessionsTree(checkHooksInstalled, onSessionsDropped);
   const status = new StatusSummary();
   const broker = new FocusBroker(dirs);
@@ -113,6 +130,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // cache ferait afficher un pourcentage périmé — le défaut qu'on a déjà
         // payé trois fois dans ce projet.
         tree.setUsage(await readUsage(home));
+        tree.setSound(currentSound());
         const map = await withTokens(await readSessions(dirs), transcripts, () => {
           if (transcriptFailureWarned) return;
           transcriptFailureWarned = true;
@@ -126,6 +144,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // vaut « classement vide », voir groups/store.ts) : aucune garde de
         // type `*FailureWarned` n'est nécessaire ici.
         const groups = await readGroups(groupsPath);
+        // Le carillon avant l'affichage : `shouldChime` compare l'état du tour
+        // précédent au nouveau, et `lastStatuses` doit avancer à CHAQUE rendu,
+        // même silencieux — sinon la comparaison se ferait contre un état de
+        // plus en plus ancien, et une bascule finirait par sonner deux fois.
+        const statuses = statusesOf(map);
+        if (shouldChime(lastStatuses, statuses)) playSound(currentSound());
+        lastStatuses = statuses;
         tree.setSessions(map);
         tree.setGroups(groups);
         status.update(map);
@@ -234,6 +259,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         () => renameGroupCommand(groupsPath, id, label),
         (message) => void vscode.window.showErrorMessage(message),
       );
+      await render();
+    }),
+    vscode.commands.registerCommand('kohVibe.refreshUsage', async () => {
+      await render();
+      const reading = await readUsage(home);
+      if (reading === undefined) {
+        void vscode.window.showInformationMessage(
+          'Koh-Vibe : aucune mesure de consommation disponible pour le moment.',
+        );
+      }
+    }),
+    vscode.commands.registerCommand('kohVibe.chooseSound', async () => {
+      const NONE = 'Aucun';
+      const sounds = await availableSounds();
+      if (sounds.length === 0) {
+        void vscode.window.showInformationMessage('Koh-Vibe : aucun son système trouvé sur cette machine.');
+        return;
+      }
+      const pick = await vscode.window.showQuickPick([NONE, ...sounds], {
+        placeHolder: "Son quand une session t'attend ou vient de finir",
+      });
+      if (pick === undefined) return;
+      const chosen = pick === NONE ? NO_SOUND : pick;
+      // Écoute avant d'enregistrer : choisir un son sans l'entendre oblige à
+      // attendre une vraie bascule pour savoir ce qu'on a pris.
+      playSound(chosen);
+      await vscode.workspace
+        .getConfiguration('kohVibe')
+        .update('statusSound', chosen, vscode.ConfigurationTarget.Global);
       await render();
     }),
     vscode.commands.registerCommand('kohVibe.colorGroup', async (node: unknown) => {

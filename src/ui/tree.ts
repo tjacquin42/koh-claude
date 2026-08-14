@@ -5,6 +5,7 @@ import { sessionDescription, sessionLabel, sessionTooltip, statusLabel } from '.
 import { emptyGroups, groupIdOf, reorder, sessionOrderOf, type Group, type GroupsState } from '../groups/model';
 import { themeColorOf } from './colors';
 import { usageColor, usageLabel, usageTooltip } from './usage-label';
+import { soundLabel, soundTooltip } from './sound-label';
 import { decorationUriParts } from './decorations';
 import type { UsageReading } from '../usage/reader';
 
@@ -21,7 +22,10 @@ export type TreeNode =
   // La consommation mesurée par Claude Code, en tête de la vue. Absente tant que
   // le pont de statusline n'est pas installé — auquel cas la ligne n'existe pas,
   // plutôt que d'afficher zéro et de laisser croire à une consommation nulle.
-  | { kind: 'usage'; usage: UsageReading }
+  | { kind: 'usage'; usage: UsageReading | undefined }
+  // Le réglage du son, juste au-dessus de l'usage : deux lignes de pied de vue,
+  // toujours présentes, jamais mêlées aux conversations.
+  | { kind: 'sound'; sound: string }
   // `action` distingue « il faut installer les hooks », cliquable, de « rien à
   // afficher », qui ne doit rien déclencher.
   | { kind: 'empty'; message: string; action?: 'install' };
@@ -102,6 +106,7 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
   private sessions: Session[] = [];
   private groups: GroupsState = emptyGroups();
   private usage: UsageReading | undefined;
+  private sound = '';
 
   constructor(
     // Reçoit la vérification plutôt que de la posséder : lire settings.json
@@ -132,6 +137,11 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
 
   setUsage(usage: UsageReading | undefined): void {
     this.usage = usage;
+    this.emitter.fire();
+  }
+
+  setSound(sound: string): void {
+    this.sound = sound;
     this.emitter.fire();
   }
 
@@ -180,19 +190,23 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
 
   async getChildren(node?: TreeNode): Promise<TreeNode[]> {
     if (node === undefined) {
-      // En tête, et même quand il n'y a aucune session : la consommation ne
-      // dépend pas d'une session en cours, et c'est souvent après coup qu'on
-      // vient la regarder.
-      const head: TreeNode[] = this.usage === undefined ? [] : [{ kind: 'usage', usage: this.usage }];
+      // En pied, et toujours présentes — même sans aucune session : ce sont des
+      // réglages, pas des conversations. Une ligne vide les sépare de la liste
+      // pour qu'on ne les confonde pas avec un dossier.
+      const foot: TreeNode[] = [
+        { kind: 'spacer', after: 'foot' },
+        { kind: 'sound', sound: this.sound },
+        { kind: 'usage', usage: this.usage },
+      ];
       if (this.sessions.length === 0) {
         const installed = await this.checkHooksInstalled();
         if (!installed) {
           return [
-            ...head,
             { kind: 'empty', message: 'Hooks non installés — cliquez pour les installer', action: 'install' },
+            ...foot,
           ];
         }
-        return [...head, { kind: 'empty', message: 'Aucune session Claude Code active' }];
+        return [{ kind: 'empty', message: 'Aucune session Claude Code active' }, ...foot];
       }
       const knownIds = new Set(this.groups.groups.map((g) => g.id));
       const byGroup = new Map<string, Session[]>();
@@ -218,7 +232,7 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
       if (unfiled.length > 0) {
         nodes.push({ kind: 'group', group: undefined, sessions: this.ordered(unfiled, undefined) });
       }
-      return [...head, ...withSpacers(nodes)];
+      return [...withSpacers(nodes), ...foot];
     }
     if (node.kind === 'group') return node.sessions.map((session) => ({ kind: 'session', session }));
     return [];
@@ -232,16 +246,30 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
       }
       return item;
     }
+    if (node.kind === 'sound') {
+      const item = new vscode.TreeItem(soundLabel(node.sound));
+      item.tooltip = soundTooltip(node.sound);
+      item.contextValue = 'sound';
+      item.iconPath = new vscode.ThemeIcon(
+        node.sound === '' ? 'mute' : 'unmute',
+        new vscode.ThemeColor('descriptionForeground'),
+      );
+      item.command = { command: 'kohVibe.chooseSound', title: 'Choisir le son' };
+      return item;
+    }
     if (node.kind === 'usage') {
       const now = Date.now();
-      const item = new vscode.TreeItem(usageLabel(node.usage.usage));
+      const item = new vscode.TreeItem(usageLabel(node.usage));
       item.tooltip = usageTooltip(node.usage, now);
       item.contextValue = 'usage';
-      const color = usageColor(node.usage.usage);
+      const color = node.usage === undefined ? undefined : usageColor(node.usage.usage);
+      // Toujours une couleur explicite, comme les pastilles de statut : sans
+      // elle, VSCode rend la ligne par un autre chemin et son libellé se décale.
       item.iconPath = new vscode.ThemeIcon(
         'pulse',
-        color === undefined ? undefined : new vscode.ThemeColor(color),
+        new vscode.ThemeColor(color ?? 'descriptionForeground'),
       );
+      item.command = { command: 'kohVibe.refreshUsage', title: 'Rafraîchir la consommation' };
       return item;
     }
     if (node.kind === 'spacer') {
@@ -277,12 +305,10 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
     item.accessibilityInformation = { label: `${sessionLabel(s)}, ${statusLabel(s.status)}` };
     const icon = ICONS[s.status];
     item.iconPath = new vscode.ThemeIcon(icon.id, new vscode.ThemeColor(icon.color));
-    // Les sessions d'un dossier coloré portent sa couleur : c'est ce qui fait
-    // lire l'appartenance d'un coup d'œil, plutôt que ligne par ligne.
-    const groupTheme = themeColorOf(this.groups.groups.find((g) => g.id === groupIdOf(this.groups, s.id))?.color);
-    if (groupTheme !== undefined) {
-      item.resourceUri = vscode.Uri.from(decorationUriParts('session', s.id, groupTheme));
-    }
+    // Volontairement AUCUNE couleur sur une session : la teinte du dossier
+    // descendue sur ses conversations noyait la lecture, et posait en plus un
+    // resourceUri qui décale le libellé. Le dossier porte la couleur, ses
+    // sessions portent leur statut.
     item.command = { command: 'kohVibe.focusSession', title: 'Aller à la session', arguments: [s] };
     return item;
   }
