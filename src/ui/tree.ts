@@ -2,9 +2,12 @@ import * as vscode from 'vscode';
 import type { Session, Status } from '../events/types';
 import { withStaleness } from '../store/staleness';
 import { sessionDescription, sessionLabel, sessionTooltip, statusLabel } from './labels';
+import { emptyGroups, groupIdOf, type Group, type GroupsState } from '../groups/model';
 
 export type TreeNode =
-  | { kind: 'project'; project: string; sessions: Session[] }
+  // `group: undefined` désigne « Sans dossier », le reliquat des sessions non
+  // rangées — pas un dossier au sens de l'utilisateur, voir contextValue plus bas.
+  | { kind: 'group'; group: Group | undefined; sessions: Session[] }
   | { kind: 'session'; session: Session }
   // `action` distingue « il faut installer les hooks », cliquable, de « rien à
   // afficher », qui ne doit rien déclencher.
@@ -24,6 +27,7 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode> {
   private readonly emitter = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this.emitter.event;
   private sessions: Session[] = [];
+  private groups: GroupsState = emptyGroups();
 
   // Reçoit la vérification plutôt que de la posséder : lire settings.json
   // toutes les REFRESH_MS pour un cas rare (aucune session) coûterait en
@@ -40,6 +44,13 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode> {
     this.emitter.fire();
   }
 
+  // La vue affiche le classement, elle ne va pas le chercher : même principe
+  // que checkHooksInstalled ci-dessus, pour la même raison de testabilité.
+  setGroups(state: GroupsState): void {
+    this.groups = state;
+    this.emitter.fire();
+  }
+
   async getChildren(node?: TreeNode): Promise<TreeNode[]> {
     if (node === undefined) {
       if (this.sessions.length === 0) {
@@ -51,15 +62,31 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode> {
         }
         return [{ kind: 'empty', message: 'Aucune session Claude Code active' }];
       }
-      const byProject = new Map<string, Session[]>();
+      const knownIds = new Set(this.groups.groups.map((g) => g.id));
+      const byGroup = new Map<string, Session[]>();
+      const unfiled: Session[] = [];
       for (const s of this.sessions) {
-        const list = byProject.get(s.project) ?? [];
-        list.push(s);
-        byProject.set(s.project, list);
+        const groupId = groupIdOf(this.groups, s.id);
+        if (groupId !== undefined && knownIds.has(groupId)) {
+          const list = byGroup.get(groupId) ?? [];
+          list.push(s);
+          byGroup.set(groupId, list);
+        } else {
+          unfiled.push(s);
+        }
       }
-      return [...byProject.entries()].map(([project, sessions]) => ({ kind: 'project', project, sessions }));
+      // Les dossiers apparaissent tous, même vides (I : cible de dépôt à la
+      // tâche suivante) ; « Sans dossier » seulement s'il a un contenu, sinon
+      // ce reliquat n'a rien à montrer, et toujours en dernier.
+      const nodes: TreeNode[] = this.groups.groups.map((group) => ({
+        kind: 'group',
+        group,
+        sessions: byGroup.get(group.id) ?? [],
+      }));
+      if (unfiled.length > 0) nodes.push({ kind: 'group', group: undefined, sessions: unfiled });
+      return nodes;
     }
-    if (node.kind === 'project') return node.sessions.map((session) => ({ kind: 'session', session }));
+    if (node.kind === 'group') return node.sessions.map((session) => ({ kind: 'session', session }));
     return [];
   }
 
@@ -71,10 +98,12 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode> {
       }
       return item;
     }
-    if (node.kind === 'project') {
-      const item = new vscode.TreeItem(node.project, vscode.TreeItemCollapsibleState.Expanded);
+    if (node.kind === 'group') {
+      const item = new vscode.TreeItem(node.group?.name ?? 'Sans dossier', vscode.TreeItemCollapsibleState.Expanded);
       item.description = `${node.sessions.length} session${node.sessions.length > 1 ? 's' : ''}`;
-      item.contextValue = 'project';
+      // « Sans dossier » n'est pas un dossier de l'utilisateur : pas d'id, pas
+      // de renommage ni de suppression possibles, donc pas ce contextValue.
+      item.contextValue = node.group === undefined ? 'unfiled' : 'group';
       return item;
     }
 

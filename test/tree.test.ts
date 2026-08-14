@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SessionsTree } from '../src/ui/tree';
+import type { TreeNode } from '../src/ui/tree';
 import type { Session } from '../src/events/types';
+import type { GroupsState } from '../src/groups/model';
 
-const session = (id: string): Session => ({
+const session = (id: string, overrides: Partial<Session> = {}): Session => ({
   id,
   cwd: '/Users/dev/projet',
   project: 'projet',
@@ -10,7 +12,23 @@ const session = (id: string): Session => ({
   status: 'idle',
   toolCount: 0,
   lastEventAt: 0,
+  ...overrides,
 });
+
+const groups = (state: Partial<GroupsState>): GroupsState => ({
+  groups: [],
+  assignments: {},
+  unknown: {},
+  ...state,
+});
+
+// Les tests affirment la liste des libellés effectivement rendus (via
+// getTreeItem), pas un simple compte de nœuds : un compte ne dit rien de
+// l'ordre ni du contenu, deux propriétés que ces règles portent explicitement.
+const labelsOf = async (tree: SessionsTree, node?: TreeNode): Promise<string[]> => {
+  const children = await tree.getChildren(node);
+  return children.map((child) => String(tree.getTreeItem(child).label));
+};
 
 // I5 : l'état « hooks installés » ne doit être recalculé que lorsqu'il est
 // réellement consulté — c'est-à-dire quand l'arbre s'apprête à afficher son
@@ -28,7 +46,7 @@ describe('SessionsTree — hooksInstalled recalculé à la demande (I5)', () => 
     const children = await tree.getChildren();
 
     expect(checkHooksInstalled).not.toHaveBeenCalled();
-    expect(children).toEqual([{ kind: 'project', project: 'projet', sessions: [session('s1')] }]);
+    expect(children).toEqual([{ kind: 'group', group: undefined, sessions: [session('s1')] }]);
   });
 
   it("interroge l'état des hooks seulement quand il n'y a aucune session, et affiche le nœud d'installation s'ils manquent", async () => {
@@ -66,7 +84,91 @@ describe('SessionsTree — hooksInstalled recalculé à la demande (I5)', () => 
     tree.setSessions(new Map([['s1', session('s1')]]));
     const children = await tree.getChildren();
 
-    expect(children).toEqual([{ kind: 'project', project: 'projet', sessions: [session('s1')] }]);
+    expect(children).toEqual([{ kind: 'group', group: undefined, sessions: [session('s1')] }]);
     expect(checkHooksInstalled).toHaveBeenCalledTimes(1); // pas un second appel
+  });
+});
+
+describe('SessionsTree — deux niveaux : dossiers puis sessions', () => {
+  it('range les sessions sous leur dossier, dans l ordre des dossiers', async () => {
+    const tree = new SessionsTree(() => Promise.resolve(true));
+    tree.setSessions(
+      new Map([
+        ['s1', session('s1', { project: 'alpha' })],
+        ['s2', session('s2', { project: 'beta' })],
+      ]),
+    );
+    tree.setGroups(
+      groups({
+        groups: [
+          { id: 'g-perso', name: 'Perso', order: 0 },
+          { id: 'g-taf', name: 'Taf', order: 1 },
+        ],
+        assignments: { s1: 'g-taf', s2: 'g-perso' },
+      }),
+    );
+
+    expect(await labelsOf(tree)).toEqual(['Perso', 'Taf']);
+
+    const [persoNode, tafNode] = await tree.getChildren();
+    expect(await labelsOf(tree, persoNode)).toEqual(['beta']);
+    expect(await labelsOf(tree, tafNode)).toEqual(['alpha']);
+  });
+
+  it('« Sans dossier » vient toujours en dernier', async () => {
+    const tree = new SessionsTree(() => Promise.resolve(true));
+    tree.setSessions(
+      new Map([
+        ['s1', session('s1', { project: 'alpha' })],
+        ['s2', session('s2', { project: 'beta' })],
+      ]),
+    );
+    tree.setGroups(
+      groups({
+        groups: [{ id: 'g1', name: 'Dossier unique', order: 0 }],
+        assignments: { s1: 'g1' }, // s2 reste non rangée
+      }),
+    );
+
+    expect(await labelsOf(tree)).toEqual(['Dossier unique', 'Sans dossier']);
+  });
+
+  it('« Sans dossier » disparaît quand toutes les sessions sont rangées', async () => {
+    const tree = new SessionsTree(() => Promise.resolve(true));
+    tree.setSessions(new Map([['s1', session('s1')]]));
+    tree.setGroups(
+      groups({
+        groups: [{ id: 'g1', name: 'Dossier', order: 0 }],
+        assignments: { s1: 'g1' },
+      }),
+    );
+
+    expect(await labelsOf(tree)).toEqual(['Dossier']);
+  });
+
+  it('un dossier vide reste visible, pour pouvoir y déposer', async () => {
+    const tree = new SessionsTree(() => Promise.resolve(true));
+    tree.setSessions(new Map([['s1', session('s1')]])); // non rangée
+    tree.setGroups(
+      groups({
+        groups: [{ id: 'g1', name: 'Dossier vide', order: 0 }],
+      }),
+    );
+
+    expect(await labelsOf(tree)).toEqual(['Dossier vide', 'Sans dossier']);
+
+    const [emptyGroupNode] = await tree.getChildren();
+    expect(await labelsOf(tree, emptyGroupNode)).toEqual([]);
+  });
+
+  it('l état vide global est inchangé quand il n y a aucune session', async () => {
+    const checkHooksInstalled = vi.fn().mockResolvedValue(true);
+    const tree = new SessionsTree(checkHooksInstalled);
+    tree.setGroups(groups({ groups: [{ id: 'g1', name: 'Dossier', order: 0 }] }));
+
+    const children = await tree.getChildren();
+
+    expect(children).toEqual([{ kind: 'empty', message: 'Aucune session Claude Code active' }]);
+    expect(checkHooksInstalled).toHaveBeenCalledTimes(1);
   });
 });
