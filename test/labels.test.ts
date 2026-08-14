@@ -11,12 +11,12 @@ const s: Session = {
 };
 
 describe('labels', () => {
-  it('nomme les cinq statuts en français', () => {
-    expect(statusLabel('running')).toBe('en cours');
-    expect(statusLabel('waiting')).toBe("t'attend");
-    expect(statusLabel('done_unseen')).toBe('terminé');
-    expect(statusLabel('idle')).toBe("à l'arrêt");
-    expect(statusLabel('stale')).toBe('périmée');
+  it('nomme les cinq statuts', () => {
+    expect(statusLabel('running')).toBe('running');
+    expect(statusLabel('waiting')).toBe('waiting for you');
+    expect(statusLabel('done_unseen')).toBe('done');
+    expect(statusLabel('idle')).toBe('idle');
+    expect(statusLabel('stale')).toBe('stale');
   });
 
   it('formate les durées court', () => {
@@ -65,7 +65,7 @@ describe('labels', () => {
     const waiting: Session = {
       ...s, status: 'waiting', pendingPermission: { tool: 'Bash', summary: 'rm -rf dist' },
     };
-    expect(sessionDescription(waiting, 0)).toBe('permission : rm -rf dist');
+    expect(sessionDescription(waiting, 0)).toBe('permission: rm -rf dist');
   });
 
   it('retombe sur l âge seul quand rien ne se passe — la pastille dit le statut', () => {
@@ -90,7 +90,7 @@ describe('formatAgeCoarse', () => {
     // C est cette stabilité qui permet à la vue de ne PAS se reconstruire toutes
     // les deux secondes, et donc à une infobulle de rester ouverte.
     for (const ms of [0, 1_000, 30_000, 59_999]) {
-      expect(formatAgeCoarse(ms)).toBe("à l'instant");
+      expect(formatAgeCoarse(ms)).toBe('just now');
     }
   });
 

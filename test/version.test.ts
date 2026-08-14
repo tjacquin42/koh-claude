@@ -59,11 +59,11 @@ describe('versionLabel', () => {
   });
 
   it('dit qu\'aucune version n\'a été livrée plutôt que d\'en emprunter une', () => {
-    expect(versionLabel({ commit: '1736ec0', dirty: false })).toBe('sans version · 1736ec0');
+    expect(versionLabel({ commit: '1736ec0', dirty: false })).toBe('no version · 1736ec0');
   });
 
   it('reste affichable sans horodatage du tout', () => {
-    expect(versionLabel(undefined)).toBe('sans version');
+    expect(versionLabel(undefined)).toBe('no version');
   });
 });
 

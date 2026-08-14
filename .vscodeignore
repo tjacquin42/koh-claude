@@ -16,6 +16,9 @@
 !bin/koh-vibe-statusline
 !scripts/install-hooks.cjs
 !build-info.json
+!l10n/**
+!package.nls.json
+!package.nls.fr.json
 !package.json
 !LICENSE
 !README.md

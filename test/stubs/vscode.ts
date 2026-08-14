@@ -90,6 +90,23 @@ export class TreeItem {
   ) {}
 }
 
+/**
+ * Translation, stubbed to the identity.
+ *
+ * `vscode.l10n.t` returns the source string whenever the running editor has no
+ * bundle for its language — which is exactly what happens in English, the
+ * language the sources are written in. Tests therefore assert the English
+ * strings, and they assert them through the same call the extension makes.
+ */
+export const l10n = {
+  t(message: string, ...args: Array<string | number>): string {
+    return message.replace(/\{(\d+)\}/g, (whole, index: string) => {
+      const value = args[Number(index)];
+      return value === undefined ? whole : String(value);
+    });
+  },
+};
+
 export const window = {
   showInformationMessage: async (..._args: unknown[]): Promise<string | undefined> => undefined,
   showWarningMessage: async (..._args: unknown[]): Promise<string | undefined> => undefined,

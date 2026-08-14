@@ -32,19 +32,25 @@ export function percentColor(percent: number): string {
 export function resetText(w: UsageWindow | undefined, now: number): string {
   if (w?.resetsAt === undefined) return '';
   const remaining = w.resetsAt * 1000 - now;
-  if (remaining <= 0) return 'remise à zéro';
+  if (remaining <= 0) return vscode.l10n.t('reset');
   const hours = Math.floor(remaining / 3_600_000);
-  if (hours < 1) return `dans ${Math.max(1, Math.floor(remaining / 60_000))} min`;
-  if (hours < 24) return `dans ${hours} h`;
-  return `dans ${Math.floor(hours / 24)} j`;
+  if (hours < 1) return vscode.l10n.t('in {0} min', Math.max(1, Math.floor(remaining / 60_000)));
+  if (hours < 24) return vscode.l10n.t('in {0} h', hours);
+  return vscode.l10n.t('in {0} d', Math.floor(hours / 24));
 }
 
-const SOURCE_FR: Record<UsageSource, string> = {
-  api: 'Anthropic',
-  statusline: 'statusline Claude Code',
+const SOURCE: Record<UsageSource, () => string> = {
+  api: () => 'Anthropic',
+  statusline: () => vscode.l10n.t('Claude Code status line'),
 };
 
-function escape(text: string): string {
+/**
+ * Escapes everything the view interpolates, with no exception for its own
+ * labels — because they are not its own once translated. English has no
+ * apostrophe in "just now"; French does, and so do quotation marks in German.
+ * A label is untrusted input the moment it can come from a bundle.
+ */
+export function escape(text: string): string {
   return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }
 
@@ -75,7 +81,7 @@ export function usageHtml(reading: UsageReading | undefined, now: number): strin
     .src { display: block; margin-top: 6px; font-size: 0.9em; }
     a { color: inherit; text-decoration: none; cursor: pointer; display: block; }
   </style>
-  <a id="refresh" title="Cliquez pour rafraîchir">${body}</a>
+  <a id="refresh" title="${escape(vscode.l10n.t('Click to refresh'))}">${body}</a>
   <script>
     const vscode = acquireVsCodeApi();
     document.getElementById('refresh').addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
@@ -83,13 +89,15 @@ export function usageHtml(reading: UsageReading | undefined, now: number): strin
 }
 
 function rowsOf(u: Usage, now: number): string {
-  return row('5 h', u.fiveHour, now) + row('7 j', u.sevenDay, now);
+  // The window names are abbreviations of durations, and abbreviations differ:
+  // French writes days "j", English "d".
+  return row(vscode.l10n.t('5 h'), u.fiveHour, now) + row(vscode.l10n.t('7 d'), u.sevenDay, now);
 }
 
 function footer(reading: UsageReading, now: number): string {
   const age = Math.max(0, Math.floor((now - reading.at) / 60_000));
-  const when = age < 1 ? "à l'instant" : `il y a ${age} min`;
-  return `<span class="src">${escape(SOURCE_FR[reading.source])} · ${escape(when)}</span>`;
+  const when = age < 1 ? vscode.l10n.t('just now') : vscode.l10n.t('{0} min ago', age);
+  return `<span class="src">${escape(SOURCE[reading.source]())} · ${escape(when)}</span>`;
 }
 
 export class UsageView implements vscode.WebviewViewProvider {

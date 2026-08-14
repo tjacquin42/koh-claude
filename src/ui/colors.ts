@@ -1,3 +1,5 @@
+import * as vscode from 'vscode';
+
 /**
  * La palette proposée pour les dossiers.
  *
@@ -12,17 +14,18 @@
  */
 export interface GroupColor {
   id: string;
+  /** Shown in the picker, so translated. Never written to disk — `id` is. */
   label: string;
   theme: string;
 }
 
 export const GROUP_COLORS: readonly GroupColor[] = [
-  { id: 'blue', label: 'Bleu', theme: 'charts.blue' },
-  { id: 'green', label: 'Vert', theme: 'charts.green' },
-  { id: 'yellow', label: 'Jaune', theme: 'charts.yellow' },
-  { id: 'orange', label: 'Orange', theme: 'charts.orange' },
-  { id: 'red', label: 'Rouge', theme: 'charts.red' },
-  { id: 'purple', label: 'Violet', theme: 'charts.purple' },
+  { id: 'blue', label: vscode.l10n.t('Blue'), theme: 'charts.blue' },
+  { id: 'green', label: vscode.l10n.t('Green'), theme: 'charts.green' },
+  { id: 'yellow', label: vscode.l10n.t('Yellow'), theme: 'charts.yellow' },
+  { id: 'orange', label: vscode.l10n.t('Orange'), theme: 'charts.orange' },
+  { id: 'red', label: vscode.l10n.t('Red'), theme: 'charts.red' },
+  { id: 'purple', label: vscode.l10n.t('Purple'), theme: 'charts.purple' },
 ];
 
 /**
@@ -37,8 +40,8 @@ export function themeColorOf(color: string | undefined): string | undefined {
   return GROUP_COLORS.find((c) => c.id === color)?.theme;
 }
 
-/** L'entrée de la liste de choix qui retire la couleur. */
-export const NO_COLOR_LABEL = 'Aucune';
+/** The picker entry that removes the colour. */
+export const NO_COLOR_LABEL = vscode.l10n.t('None');
 
 /**
  * Ce que veut dire ce que l'utilisateur a choisi dans la liste des couleurs.

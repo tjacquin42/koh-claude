@@ -1,7 +1,7 @@
 {
   "name": "koh-vibe",
   "displayName": "Koh-Vibe",
-  "description": "Toutes vos sessions Claude Code dans une seule vue : statut en direct, dossiers, consommation et carillons.",
+  "description": "%extension.description%",
   "version": "0.1.0",
   "publisher": "tjacquin42",
   "license": "MIT",
@@ -14,6 +14,7 @@
   "icon": "resources/logo.png",
   "galleryBanner": { "color": "#0A1F28", "theme": "dark" },
   "packageManager": "pnpm@10.25.0",
+  "l10n": "./l10n",
   "main": "./out/extension.js",
   "activationEvents": ["onStartupFinished"],
   "contributes": {
@@ -24,32 +25,32 @@
     },
     "views": {
       "koh-vibe": [
-        { "id": "kohVibe.sessions", "name": "Sessions", "icon": "resources/logo-mono.svg", "initialSize": 20 },
-        { "id": "kohVibe.usage", "name": "Consommation", "type": "webview", "icon": "resources/logo-mono.svg", "initialSize": 3 },
-        { "id": "kohVibe.settings", "name": "Réglages", "icon": "resources/logo-mono.svg", "initialSize": 4 }
+        { "id": "kohVibe.sessions", "name": "%view.kohVibe.sessions.name%", "icon": "resources/logo-mono.svg", "initialSize": 20 },
+        { "id": "kohVibe.usage", "name": "%view.kohVibe.usage.name%", "type": "webview", "icon": "resources/logo-mono.svg", "initialSize": 3 },
+        { "id": "kohVibe.settings", "name": "%view.kohVibe.settings.name%", "icon": "resources/logo-mono.svg", "initialSize": 4 }
       ]
     },
     "commands": [
-      { "command": "kohVibe.refresh", "title": "Rafraîchir", "category": "Koh-Vibe", "icon": "$(refresh)" },
-      { "command": "kohVibe.focusSession", "title": "Aller à la session", "category": "Koh-Vibe" },
-      { "command": "kohVibe.installHooks", "title": "Installer les hooks", "category": "Koh-Vibe" },
-      { "command": "kohVibe.uninstallHooks", "title": "Désinstaller les hooks", "category": "Koh-Vibe" },
-      { "command": "kohVibe.newGroup", "title": "Créer un dossier", "category": "Koh-Vibe", "icon": "$(new-folder)" },
-      { "command": "kohVibe.renameGroup", "title": "Renommer le dossier", "category": "Koh-Vibe" },
-      { "command": "kohVibe.colorGroup", "title": "Couleur du dossier", "category": "Koh-Vibe" },
-      { "command": "kohVibe.deleteGroup", "title": "Supprimer le dossier", "category": "Koh-Vibe" },
-      { "command": "kohVibe.chooseSound", "title": "Son d'un événement", "category": "Koh-Vibe" },
-      { "command": "kohVibe.chooseVolume", "title": "Volume des carillons", "category": "Koh-Vibe" },
-      { "command": "kohVibe.installSounds", "title": "Installer la bibliothèque de sons", "category": "Koh-Vibe" },
-      { "command": "kohVibe.removeSounds", "title": "Retirer la bibliothèque de sons", "category": "Koh-Vibe" },
-      { "command": "kohVibe.offerSounds", "title": "Proposer la bibliothèque de sons", "category": "Koh-Vibe" },
-      { "command": "kohVibe.replaySound", "title": "Rejouer le son survolé", "category": "Koh-Vibe" },
-      { "command": "kohVibe.soundGroup.waiting", "title": "Son du dossier quand ça t'attend", "category": "Koh-Vibe" },
-      { "command": "kohVibe.soundGroup.done", "title": "Son du dossier quand c'est terminé", "category": "Koh-Vibe" },
-      { "command": "kohVibe.soundSession.waiting", "title": "Son de la conversation quand ça t'attend", "category": "Koh-Vibe" },
-      { "command": "kohVibe.soundSession.done", "title": "Son de la conversation quand c'est terminé", "category": "Koh-Vibe" },
-      { "command": "kohVibe.forgetSession", "title": "Retirer de la liste", "category": "Koh-Vibe" },
-      { "command": "kohVibe.refreshUsage", "title": "Rafraîchir la consommation", "category": "Koh-Vibe" }
+      { "command": "kohVibe.refresh", "title": "%command.kohVibe.refresh.title%", "category": "Koh-Vibe", "icon": "$(refresh)" },
+      { "command": "kohVibe.focusSession", "title": "%command.kohVibe.focusSession.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.installHooks", "title": "%command.kohVibe.installHooks.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.uninstallHooks", "title": "%command.kohVibe.uninstallHooks.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.newGroup", "title": "%command.kohVibe.newGroup.title%", "category": "Koh-Vibe", "icon": "$(new-folder)" },
+      { "command": "kohVibe.renameGroup", "title": "%command.kohVibe.renameGroup.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.colorGroup", "title": "%command.kohVibe.colorGroup.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.deleteGroup", "title": "%command.kohVibe.deleteGroup.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.chooseSound", "title": "%command.kohVibe.chooseSound.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.chooseVolume", "title": "%command.kohVibe.chooseVolume.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.installSounds", "title": "%command.kohVibe.installSounds.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.removeSounds", "title": "%command.kohVibe.removeSounds.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.offerSounds", "title": "%command.kohVibe.offerSounds.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.replaySound", "title": "%command.kohVibe.replaySound.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.soundGroup.waiting", "title": "%command.kohVibe.soundGroup.waiting.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.soundGroup.done", "title": "%command.kohVibe.soundGroup.done.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.soundSession.waiting", "title": "%command.kohVibe.soundSession.waiting.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.soundSession.done", "title": "%command.kohVibe.soundSession.done.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.forgetSession", "title": "%command.kohVibe.forgetSession.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.refreshUsage", "title": "%command.kohVibe.refreshUsage.title%", "category": "Koh-Vibe" }
     ],
     "keybindings": [
       { "command": "kohVibe.replaySound", "key": "right", "when": "kohVibe.pickingSound && inQuickOpen" }

@@ -30,7 +30,10 @@ export class StatusSummary {
     if (running > 0) parts.push(`$(circle-filled) ${running}`);
     if (done > 0) parts.push(`$(check) ${done}`);
     this.item.text = parts.length > 0 ? parts.join(' · ') : `$(circle-outline) ${sessions.length}`;
-    this.item.tooltip = `Koh-Vibe — ${sessions.length} session${sessions.length > 1 ? 's' : ''}`;
+    this.item.tooltip =
+      sessions.length > 1
+        ? vscode.l10n.t('Koh-Vibe — {0} sessions', sessions.length)
+        : vscode.l10n.t('Koh-Vibe — {0} session', sessions.length);
     this.item.backgroundColor =
       waiting > 0 ? new vscode.ThemeColor('statusBarItem.warningBackground') : undefined;
     this.item.show();

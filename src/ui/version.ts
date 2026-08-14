@@ -1,3 +1,4 @@
+import * as vscode from 'vscode';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -38,7 +39,7 @@ export function buildCommit(stamp: unknown): string | undefined {
  * seule question posée — est-ce bien le nouveau paquet qui tourne ?
  */
 export function versionLabel(stamp: unknown): string {
-  const release = releaseLabel(stamp) ?? 'sans version';
+  const release = releaseLabel(stamp) ?? vscode.l10n.t('no version');
   const commit = buildCommit(stamp);
   return commit === undefined ? release : `${release} · ${commit}`;
 }

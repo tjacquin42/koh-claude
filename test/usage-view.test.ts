@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { percentColor, resetText, usageHtml } from '../src/ui/usage-view';
+import { escape, percentColor, resetText, usageHtml } from '../src/ui/usage-view';
 import { parseUsage } from '../src/usage/model';
 import type { UsageReading } from '../src/usage/reader';
 
@@ -35,24 +35,24 @@ describe('resetText', () => {
 
   it('dit les minutes, les heures, puis les jours', () => {
     const now = 1_700_000_000_000;
-    expect(resetText(at(30 * 60, now), now)).toBe('dans 30 min');
-    expect(resetText(at(2 * 3600, now), now)).toBe('dans 2 h');
-    expect(resetText(at(6 * 86_400, now), now)).toBe('dans 6 j');
+    expect(resetText(at(30 * 60, now), now)).toBe('in 30 min');
+    expect(resetText(at(2 * 3600, now), now)).toBe('in 2 h');
+    expect(resetText(at(6 * 86_400, now), now)).toBe('in 6 d');
   });
 
   it('arrondit vers le bas — une échéance ne doit jamais paraître plus lointaine', () => {
     const now = 1_700_000_000_000;
-    expect(resetText(at(2 * 3600 + 3500, now), now)).toBe('dans 2 h');
+    expect(resetText(at(2 * 3600 + 3500, now), now)).toBe('in 2 h');
   });
 
   it('ne descend jamais sous « dans 1 min » avant l échéance', () => {
     const now = 1_700_000_000_000;
-    expect(resetText(at(20, now), now)).toBe('dans 1 min');
+    expect(resetText(at(20, now), now)).toBe('in 1 min');
   });
 
   it('dit la remise à zéro plutôt qu un délai négatif', () => {
     const now = 1_700_000_000_000;
-    expect(resetText(at(-60, now), now)).toBe('remise à zéro');
+    expect(resetText(at(-60, now), now)).toBe('reset');
   });
 
   it('n invente rien sans échéance', () => {
@@ -68,9 +68,9 @@ describe('usageHtml', () => {
     const html = usageHtml(reading(30, 5, Math.floor(now / 1000) + 7200), now);
     expect(html).toContain('5 h');
     expect(html).toContain('30 %');
-    expect(html).toContain('7 j');
+    expect(html).toContain('7 d');
     expect(html).toContain('5 %');
-    expect(html).toContain('dans 2 h');
+    expect(html).toContain('in 2 h');
   });
 
   it('colore le pourcentage, et lui seul', () => {
@@ -83,11 +83,17 @@ describe('usageHtml', () => {
 
   it('dit d où vient la mesure et depuis quand', () => {
     expect(usageHtml(reading(1, 1, undefined, now - 120_000), now)).toContain('Anthropic');
-    expect(usageHtml(reading(1, 1, undefined, now - 120_000), now)).toContain('il y a 2 min');
-    // L apostrophe est échappée : la vue échappe tout ce qu elle interpole,
-    // sans exception ni cas particulier pour ses propres libellés.
-    expect(usageHtml(reading(1, 1, undefined, now), now)).toContain('instant');
-    expect(usageHtml(reading(1, 1, undefined, now), now)).not.toContain("l'instant");
+    expect(usageHtml(reading(1, 1, undefined, now - 120_000), now)).toContain('2 min');
+    expect(usageHtml(reading(1, 1, undefined, now), now)).toContain('just now');
+  });
+
+  it('échappe ce qu elle interpole, y compris ses propres libellés', () => {
+    // Un libellé cesse d être « le sien » dès qu il peut venir d un bundle :
+    // « just now » n a pas d apostrophe, « à l instant » en a une, et l allemand
+    // a ses guillemets. Le test porte donc sur l échappement lui-même, que la
+    // langue de la source ne peut plus exercer.
+    expect(escape("à l'instant")).toBe('à l&#39;instant');
+    expect(escape('<b>&"</b>')).toBe('&#60;b&#62;&#38;&#34;&#60;/b&#62;');
   });
 
   it('reste affichable sans aucune mesure, et propose de rafraîchir', () => {

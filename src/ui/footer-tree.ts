@@ -21,33 +21,33 @@ export type FooterNode =
   | { kind: 'volume'; volume: number }
   | { kind: 'library'; count: number };
 
-const EVENT_FR: Record<ChimeEvent, string> = {
-  waiting: "t'attend",
-  done: 'terminé',
-};
-
 /**
- * Le titre d'un choix de son. Il nomme l'ÉVÉNEMENT, pas le niveau : « Son de ce
- * dossier » ne disait pas ce qu'on réglait, et le niveau se lit déjà dans le
- * menu par lequel on est arrivé.
+ * The title of a sound picker. It names the EVENT, not the level: "sound of
+ * this folder" never said what was being set, and the level is already visible
+ * in the menu you came through.
  */
-export const EVENT_TITLE: Record<ChimeEvent, string> = {
-  waiting: "Son quand ça t'attend",
-  done: "Son quand c'est terminé",
+export const EVENT_TITLE: Record<ChimeEvent, () => string> = {
+  waiting: () => vscode.l10n.t('Sound when a session waits for you'),
+  done: () => vscode.l10n.t('Sound when a session finishes'),
 };
 
-/** Combien de sons la bibliothèque a posés, et donc s'il faut l'installer ou la retirer. */
+/** How many sounds the library has laid down, hence whether to install or remove it. */
 export function libraryRowLabel(count: number): string {
-  return count === 0 ? 'Bibliothèque de sons : installer…' : `Bibliothèque de sons : ${count} sons`;
+  return count === 0
+    ? vscode.l10n.t('Sound library: install…')
+    : vscode.l10n.t('Sound library: {0} sounds', count);
 }
 
-/** Le libellé dit l'état courant, pas une invitation vague : « Son … : Ping » se lit d'un coup d'œil. */
+/** The row states the current setting rather than vaguely inviting one: "…: Ping" reads at a glance. */
 export function soundRowLabel(event: ChimeEvent, name: string): string {
-  return `Son ${EVENT_FR[event]} : ${name === NO_SOUND ? 'aucun' : name}`;
+  const sound = name === NO_SOUND ? vscode.l10n.t('none') : name;
+  return event === 'waiting'
+    ? vscode.l10n.t('Waiting sound: {0}', sound)
+    : vscode.l10n.t('Finished sound: {0}', sound);
 }
 
 export function volumeRowLabel(volume: number): string {
-  return `Volume : ${Math.round(volume * 100)} %`;
+  return vscode.l10n.t('Volume: {0} %', Math.round(volume * 100));
 }
 
 export class FooterTree implements vscode.TreeDataProvider<FooterNode> {
@@ -91,31 +91,35 @@ export class FooterTree implements vscode.TreeDataProvider<FooterNode> {
       const item = new vscode.TreeItem(soundRowLabel(node.event, node.name));
       item.tooltip =
         node.event === 'waiting'
-          ? "Joué quand une session se met à attendre ta réponse.\nCliquez pour choisir ; les flèches font entendre chaque son."
-          : "Joué quand une session vient de finir.\nCliquez pour choisir ; les flèches font entendre chaque son.";
+          ? vscode.l10n.t(
+              'Played when a session starts waiting for your answer.\nClick to choose; the arrow keys play each sound.',
+            )
+          : vscode.l10n.t(
+              'Played when a session has just finished.\nClick to choose; the arrow keys play each sound.',
+            );
       item.iconPath = new vscode.ThemeIcon(
         node.name === NO_SOUND ? 'mute' : 'unmute',
         new vscode.ThemeColor('descriptionForeground'),
       );
-      item.command = { command: 'kohVibe.chooseSound', title: 'Choisir le son', arguments: [node.event] };
+      item.command = { command: 'kohVibe.chooseSound', title: EVENT_TITLE[node.event](), arguments: [node.event] };
       return item;
     }
     if (node.kind === 'volume') {
       const item = new vscode.TreeItem(volumeRowLabel(node.volume));
-      item.tooltip = 'Volume des carillons.\nCliquez pour le régler ; chaque pas se fait entendre.';
+      item.tooltip = vscode.l10n.t('Chime volume.\nClick to set it; every step is played.');
       item.iconPath = new vscode.ThemeIcon('megaphone', new vscode.ThemeColor('descriptionForeground'));
-      item.command = { command: 'kohVibe.chooseVolume', title: 'Régler le volume' };
+      item.command = { command: 'kohVibe.chooseVolume', title: vscode.l10n.t('Set the volume') };
       return item;
     }
     const item = new vscode.TreeItem(libraryRowLabel(node.count));
     item.tooltip =
       node.count === 0
-        ? "Cent sons d'interface courts, libres de droits, téléchargés une seule fois."
-        : 'Cliquez pour retirer la bibliothèque. Vos sons et ceux du système ne bougent pas.';
+        ? vscode.l10n.t('A hundred short interface sounds, free of rights, downloaded once.')
+        : vscode.l10n.t('Click to remove the library. Your own sounds and the system ones stay put.');
     item.iconPath = new vscode.ThemeIcon('library', new vscode.ThemeColor('descriptionForeground'));
     item.command = {
       command: node.count === 0 ? 'kohVibe.installSounds' : 'kohVibe.removeSounds',
-      title: 'Bibliothèque de sons',
+      title: vscode.l10n.t('Sound library'),
     };
     return item;
   }

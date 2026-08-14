@@ -65,7 +65,7 @@ describe('SessionsTree — hooksInstalled recalculé à la demande (I5)', () => 
 
     expect(checkHooksInstalled).toHaveBeenCalledTimes(1);
     expect(children).toEqual([
-      { kind: 'empty', message: 'Hooks non installés — cliquez pour les installer', action: 'install' },
+      { kind: 'empty', message: 'Hooks not installed — click to install them', action: 'install' },
     ]);
   });
 
@@ -75,12 +75,12 @@ describe('SessionsTree — hooksInstalled recalculé à la demande (I5)', () => 
 
     const before = await bodyOf(tree);
     expect(before).toEqual([
-      { kind: 'empty', message: 'Hooks non installés — cliquez pour les installer', action: 'install' },
+      { kind: 'empty', message: 'Hooks not installed — click to install them', action: 'install' },
     ]);
 
     const after = await bodyOf(tree);
 
-    expect(after).toEqual([{ kind: 'empty', message: 'Aucune session Claude Code active' }]);
+    expect(after).toEqual([{ kind: 'empty', message: 'No active Claude Code session' }]);
     expect(checkHooksInstalled).toHaveBeenCalledTimes(2);
   });
 
@@ -138,7 +138,7 @@ describe('SessionsTree — deux niveaux : dossiers puis sessions', () => {
       }),
     );
 
-    expect(await labelsOf(tree)).toEqual(['Dossier unique', '', 'Sans dossier']);
+    expect(await labelsOf(tree)).toEqual(['Dossier unique', '', 'Unfiled']);
   });
 
   it('« Sans dossier » disparaît quand toutes les sessions sont rangées', async () => {
@@ -163,7 +163,7 @@ describe('SessionsTree — deux niveaux : dossiers puis sessions', () => {
       }),
     );
 
-    expect(await labelsOf(tree)).toEqual(['Dossier vide', '', 'Sans dossier']);
+    expect(await labelsOf(tree)).toEqual(['Dossier vide', '', 'Unfiled']);
 
     const [emptyGroupNode] = await tree.getChildren();
     expect(await labelsOf(tree, emptyGroupNode)).toEqual([]);
@@ -212,7 +212,7 @@ describe('SessionsTree — deux niveaux : dossiers puis sessions', () => {
 
     const children = await bodyOf(tree);
 
-    expect(children).toEqual([{ kind: 'empty', message: 'Aucune session Claude Code active' }]);
+    expect(children).toEqual([{ kind: 'empty', message: 'No active Claude Code session' }]);
     expect(checkHooksInstalled).toHaveBeenCalledTimes(1);
   });
 });
@@ -253,7 +253,7 @@ describe('groupIdOfNode — résout un identifiant de dossier sans jamais caster
   });
 
   it('renvoie undefined pour un nœud vide', () => {
-    expect(groupIdOfNode({ kind: 'empty', message: 'Aucune session Claude Code active' })).toBeUndefined();
+    expect(groupIdOfNode({ kind: 'empty', message: 'No active Claude Code session' })).toBeUndefined();
   });
 
   it.each([undefined, null, 'g1', 42, []])('renvoie undefined pour une valeur non objet : %p', (value) => {

@@ -48,8 +48,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   await ensureDirs(dirs);
   if (migrated === 'migrated') {
     void vscode.window.showInformationMessage(
-      "Koh-Vibe : l'extension a changé de nom. Vos dossiers et vos sessions ont été repris ; " +
-        'relancez « Installer les hooks » pour que Claude Code pointe vers le nouveau pont.',
+      vscode.l10n.t(
+        'Koh-Vibe: the extension was renamed. Your folders and sessions were carried over; run "Install hooks" again so that Claude Code points at the new bridge.',
+      ),
     );
   }
 
@@ -112,6 +113,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   /** Ce que rejoue la flèche droite, posé le temps d'un choix de son. */
   const PICKING_SOUND = 'kohVibe.pickingSound';
+
+  // Ces libellés sont comparés à ce que l'utilisateur a choisi : les nommer une
+  // fois empêche qu'une traduction fasse diverger la question de sa réponse.
+  const NONE_LABEL = vscode.l10n.t('None');
+  const INSTALL_LABEL = vscode.l10n.t('Install');
   let replay: (() => void) | undefined;
 
   /**
@@ -129,8 +135,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const sounds = await availableSounds();
     if (sounds.length === 0) {
       const go = await vscode.window.showInformationMessage(
-        'Koh-Vibe : aucun son trouvé sur cette machine.',
-        'Installer la bibliothèque',
+        vscode.l10n.t('Koh-Vibe: no sound found on this machine.'),
+        vscode.l10n.t('Install the library'),
       );
       if (go !== undefined) await vscode.commands.executeCommand('kohVibe.installSounds');
       return undefined;
@@ -141,14 +147,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // l'entendre oblige à attendre une vraie bascule pour savoir ce qu'on a pris.
     const picker = vscode.window.createQuickPick();
     picker.title = title;
-    picker.placeholder = 'Les flèches font entendre chaque son ; → le rejoue';
+    picker.placeholder = vscode.l10n.t('The arrow keys play each sound; → replays it');
     picker.items = [
-      ...(inherit === undefined ? [] : [{ label: inherit, description: 'ne rien fixer à ce niveau' }]),
-      { label: 'Aucun', description: 'silence, même si le niveau au-dessus a un son' },
+      ...(inherit === undefined
+        ? []
+        : [{ label: inherit, description: vscode.l10n.t('set nothing at this level') }]),
+      { label: NONE_LABEL, description: vscode.l10n.t('silence, even if the level above has a sound') },
       ...sounds.map((s) => ({ label: s.name, description: s.path })),
     ];
     const hear = (label: string | undefined): void => {
-      if (label === undefined || label === inherit || label === 'Aucun') return;
+      if (label === undefined || label === inherit || label === NONE_LABEL) return;
       void playNamed(label, volume);
     };
     picker.onDidChangeActive((active) => hear(active[0]?.label));
@@ -175,7 +183,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     if (chosen === undefined) return undefined;
     if (chosen === inherit) return { sound: undefined };
-    return { sound: chosen === 'Aucun' ? NO_SOUND : chosen };
+    return { sound: chosen === NONE_LABEL ? NO_SOUND : chosen };
   }
 
   const tree = new SessionsTree(checkHooksInstalled, onSessionsDropped);
@@ -248,7 +256,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           if (transcriptFailureWarned) return;
           transcriptFailureWarned = true;
           void vscode.window.showWarningMessage(
-            "Koh-Vibe : lecture d'un transcript impossible — cette session s'affiche sans ses compteurs.",
+            vscode.l10n.t(
+              'Koh-Vibe: a transcript could not be read — this session is shown without its counters.',
+            ),
           );
         });
         // Relu à chaque rendu, jamais mis en cache : fichier partagé (§3),
@@ -282,7 +292,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (renderFailureWarned) return;
         renderFailureWarned = true;
         void vscode.window.showWarningMessage(
-          'Koh-Vibe : le rendu du tableau de bord a échoué — nouvelle tentative automatique.',
+          vscode.l10n.t('Koh-Vibe: rendering the dashboard failed — it will be retried.'),
         );
       },
     );
@@ -305,7 +315,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (drainFailureWarned) return;
       drainFailureWarned = true;
       void vscode.window.showWarningMessage(
-        'Koh-Vibe : la lecture des événements a échoué — nouvelle tentative automatique.',
+        vscode.l10n.t('Koh-Vibe: reading the events failed — it will be retried.'),
       );
     },
   );
@@ -362,11 +372,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // objet est du bruit.
       if ((await installedCount(librarySoundsDir(home))) > 0) return;
       const go = await vscode.window.showInformationMessage(
-        `Koh-Vibe peut installer ${LIBRARY.count} sons d'interface courts (${LIBRARY.name}, ${LIBRARY.license}).`,
-        'Installer',
-        'Plus tard',
+        vscode.l10n.t(
+          'Koh-Vibe can install {0} short interface sounds ({1}, {2}).',
+          LIBRARY.count,
+          LIBRARY.name,
+          LIBRARY.license,
+        ),
+        INSTALL_LABEL,
+        vscode.l10n.t('Later'),
       );
-      if (go === 'Installer') await vscode.commands.executeCommand('kohVibe.installSounds');
+      if (go === INSTALL_LABEL) await vscode.commands.executeCommand('kohVibe.installSounds');
     }),
     vscode.commands.registerCommand('kohVibe.uninstallHooks', () => {
       const terminal = vscode.window.createTerminal('Koh-Vibe');
@@ -378,7 +393,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // particulier le nom vide, que createGroup/renameGroup rejettent
     // volontairement — en message affiché, jamais en trace d'appel non gérée.
     vscode.commands.registerCommand('kohVibe.newGroup', async () => {
-      const label = await vscode.window.showInputBox({ prompt: 'Nom du dossier', placeHolder: 'Perso' });
+      const label = await vscode.window.showInputBox({
+        prompt: vscode.l10n.t('Folder name'),
+        placeHolder: vscode.l10n.t('Personal'),
+      });
       await runGroupAction(
         () => createGroupCommand(groupsPath, label, () => randomUUID()),
         (message) => void vscode.window.showErrorMessage(message),
@@ -388,7 +406,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('kohVibe.renameGroup', async (node: unknown) => {
       const id = groupIdOfNode(node);
       if (id === undefined) return;
-      const label = await vscode.window.showInputBox({ prompt: 'Nouveau nom du dossier' });
+      const label = await vscode.window.showInputBox({ prompt: vscode.l10n.t('New folder name') });
       await runGroupAction(
         () => renameGroupCommand(groupsPath, id, label),
         (message) => void vscode.window.showErrorMessage(message),
@@ -402,7 +420,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await render();
       if (reading === undefined) {
         void vscode.window.showInformationMessage(
-          'Koh-Vibe : consommation indisponible — Anthropic injoignable, ou accès au trousseau refusé.',
+          vscode.l10n.t(
+            'Koh-Vibe: usage unavailable — Anthropic unreachable, or keychain access denied.',
+          ),
         );
       }
     }),
@@ -410,7 +430,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('kohVibe.chooseSound', async (event: unknown) => {
       const which: ChimeEvent = event === 'done' ? 'done' : 'waiting';
       // Pas de niveau au-dessus : c'est le réglage global, le dernier recours.
-      const chosen = await pickSound(EVENT_TITLE[which], undefined);
+      const chosen = await pickSound(EVENT_TITLE[which](), undefined);
       if (chosen === undefined) return;
       await writeSettings(settingsPath, { [which]: chosen.sound ?? NO_SOUND });
       await render();
@@ -423,8 +443,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // quoi régler le volume avant d'avoir choisi un son se ferait en silence.
       const sample = sounds.find((s) => s.name === settings.waiting) ?? sounds[0];
       const picker = vscode.window.createQuickPick();
-      picker.title = 'Volume des carillons';
-      picker.placeholder = 'Les flèches font entendre chaque niveau';
+      picker.title = vscode.l10n.t('Chime volume');
+      picker.placeholder = vscode.l10n.t('The arrow keys play each level');
       picker.items = steps.map((p) => ({ label: `${p} %` }));
       picker.onDidChangeActive((active) => {
         const item = active[0];
@@ -445,28 +465,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const target = librarySoundsDir(home);
       const already = await installedCount(target);
       if (already > 0) {
-        void vscode.window.showInformationMessage(`Koh-Vibe : la bibliothèque est déjà installée (${already} sons).`);
+        void vscode.window.showInformationMessage(
+          vscode.l10n.t('Koh-Vibe: the library is already installed ({0} sounds).', already),
+        );
         return;
       }
       const go = await vscode.window.showInformationMessage(
-        `Installer ${LIBRARY.count} sons d'interface ?`,
+        vscode.l10n.t('Install {0} interface sounds?', LIBRARY.count),
         {
           modal: true,
-          detail:
-            `${LIBRARY.name}, par ${LIBRARY.author} — ${LIBRARY.license}, donc libres de tout usage.\n` +
-            `Environ 2 Mo téléchargés une seule fois (3 Mo sur le disque), posés dans ${target}, et retirables d'un geste.`,
+          detail: vscode.l10n.t(
+            '{0}, by {1} — {2}, so free for any use.\nAround 2 MB downloaded once (3 MB on disk), placed in {3}, and removable in one click.',
+            LIBRARY.name,
+            LIBRARY.author,
+            LIBRARY.license,
+            target,
+          ),
         },
-        'Installer',
+        INSTALL_LABEL,
       );
-      if (go !== 'Installer') return;
+      if (go !== INSTALL_LABEL) return;
       const added = await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: 'Koh-Vibe : installation des sons…' },
+        { location: vscode.ProgressLocation.Notification, title: vscode.l10n.t('Koh-Vibe: installing sounds…') },
         () => installLibrary(target),
       );
       void vscode.window.showInformationMessage(
         added === 0
-          ? "Koh-Vibe : la bibliothèque n'a pas pu être installée — réseau injoignable ?"
-          : `Koh-Vibe : ${added} sons installés.`,
+          ? vscode.l10n.t('Koh-Vibe: the library could not be installed — network unreachable?')
+          : vscode.l10n.t('Koh-Vibe: {0} sounds installed.', added),
       );
       await render();
     }),
@@ -474,16 +500,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const target = librarySoundsDir(home);
       const present = await installedCount(target);
       if (present === 0) {
-        void vscode.window.showInformationMessage("Koh-Vibe : la bibliothèque n'est pas installée.");
+        void vscode.window.showInformationMessage(vscode.l10n.t('Koh-Vibe: the library is not installed.'));
         return;
       }
+      const remove = vscode.l10n.t('Remove');
       const go = await vscode.window.showWarningMessage(
-        `Retirer les ${present} sons de la bibliothèque ?`,
-        { modal: true, detail: `Seul ${target} est effacé : les sons du système et les vôtres ne bougent pas.` },
-        'Retirer',
+        vscode.l10n.t('Remove the {0} sounds of the library?', present),
+        {
+          modal: true,
+          detail: vscode.l10n.t(
+            'Only {0} is erased: the system sounds and your own stay put.',
+            target,
+          ),
+        },
+        remove,
       );
-      if (go !== 'Retirer') return;
-      void vscode.window.showInformationMessage(`Koh-Vibe : ${await removeLibrary(target)} sons retirés.`);
+      if (go !== remove) return;
+      void vscode.window.showInformationMessage(
+        vscode.l10n.t('Koh-Vibe: {0} sounds removed.', await removeLibrary(target)),
+      );
       await render();
     }),
     // Deux commandes par niveau, une par événement, plutôt qu'une seule qui
@@ -493,7 +528,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       vscode.commands.registerCommand(`kohVibe.soundGroup.${event}`, async (node: unknown) => {
         const id = groupIdOfNode(node);
         if (id === undefined) return;
-        const chosen = await pickSound(`${EVENT_TITLE[event]} — ce dossier`, 'Réglage global');
+        const chosen = await pickSound(vscode.l10n.t('{0} — this folder', EVENT_TITLE[event]()), vscode.l10n.t('Global setting'));
         if (chosen === undefined) return;
         await runGroupAction(
           () => soundGroupCommand(groupsPath, id, event, chosen.sound),
@@ -504,7 +539,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       vscode.commands.registerCommand(`kohVibe.soundSession.${event}`, async (node: unknown) => {
         const id = sessionIdOfNode(node);
         if (id === undefined) return;
-        const chosen = await pickSound(`${EVENT_TITLE[event]} — cette conversation`, 'Son du dossier');
+        const chosen = await pickSound(vscode.l10n.t('{0} — this conversation', EVENT_TITLE[event]()),
+          vscode.l10n.t('Folder sound'),
+        );
         if (chosen === undefined) return;
         await runGroupAction(
           () => soundSessionCommand(groupsPath, id, event, chosen.sound),
@@ -528,7 +565,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       try {
         await removeSession(dirs, id);
       } catch {
-        void vscode.window.showErrorMessage("Koh-Vibe : cette conversation n'a pas pu être retirée.");
+        void vscode.window.showErrorMessage(vscode.l10n.t('Koh-Vibe: this conversation could not be removed.'));
         return;
       }
       // Son rangement part avec elle : dossier, place choisie, sons propres.
@@ -542,7 +579,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (id === undefined) return;
       const pick = await vscode.window.showQuickPick(
         [NO_COLOR_LABEL, ...GROUP_COLORS.map((c) => c.label)],
-        { placeHolder: 'Couleur du dossier' },
+        { placeHolder: vscode.l10n.t('Folder colour') },
       );
       // Fermer la liste n'efface rien : la distinction vit dans colorChoice.
       const choice = colorChoice(pick);

@@ -271,10 +271,10 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
         const installed = await this.checkHooksInstalled();
         if (!installed) {
           return [
-            { kind: 'empty', message: 'Hooks non installés — cliquez pour les installer', action: 'install' },
+            { kind: 'empty', message: vscode.l10n.t('Hooks not installed — click to install them'), action: 'install' },
           ];
         }
-        return [{ kind: 'empty', message: 'Aucune session Claude Code active' }];
+        return [{ kind: 'empty', message: vscode.l10n.t('No active Claude Code session') }];
       }
       const knownIds = new Set(this.groups.groups.map((g) => g.id));
       const byGroup = new Map<string, Session[]>();
@@ -324,9 +324,12 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
       return item;
     }
     if (node.kind === 'group') {
-      const item = new vscode.TreeItem(node.group?.name ?? 'Sans dossier', vscode.TreeItemCollapsibleState.Expanded);
+      const item = new vscode.TreeItem(node.group?.name ?? vscode.l10n.t('Unfiled'), vscode.TreeItemCollapsibleState.Expanded);
       item.id = nodeId(node);
-      item.description = `${node.sessions.length} session${node.sessions.length > 1 ? 's' : ''}`;
+      item.description =
+        node.sessions.length > 1
+          ? vscode.l10n.t('{0} sessions', node.sessions.length)
+          : vscode.l10n.t('{0} session', node.sessions.length);
       // « Sans dossier » n'est pas un dossier : il ne se colore pas, faute de
       // pouvoir porter un choix de l'utilisateur.
       const theme = themeColorOf(node.group?.color);
@@ -356,7 +359,7 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
     // descendue sur ses conversations noyait la lecture, et posait en plus un
     // resourceUri qui décale le libellé. Le dossier porte la couleur, ses
     // sessions portent leur statut.
-    item.command = { command: 'kohVibe.focusSession', title: 'Aller à la session', arguments: [s] };
+    item.command = { command: 'kohVibe.focusSession', title: vscode.l10n.t('Go to session'), arguments: [s] };
     return item;
   }
 

@@ -30,7 +30,7 @@ describe('themeColorOf', () => {
 
 describe('colorChoice', () => {
   it('pose la couleur choisie', () => {
-    expect(colorChoice('Bleu')).toEqual({ kind: 'set', color: 'blue' });
+    expect(colorChoice('Blue')).toEqual({ kind: 'set', color: 'blue' });
   });
 
   it('retire la couleur sur « Aucune » — c\'est un choix, pas une absence', () => {

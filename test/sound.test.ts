@@ -135,10 +135,10 @@ describe('lecture', () => {
 
 describe('libellés du pied', () => {
   it('disent l état courant plutôt qu une invitation vague', () => {
-    expect(soundRowLabel('waiting', 'Ping')).toBe("Son t'attend : Ping");
-    expect(soundRowLabel('done', NO_SOUND)).toBe('Son terminé : aucun');
-    expect(volumeRowLabel(0.5)).toBe('Volume : 50 %');
-    expect(volumeRowLabel(0)).toBe('Volume : 0 %');
+    expect(soundRowLabel('waiting', 'Ping')).toBe("Waiting sound: Ping");
+    expect(soundRowLabel('done', NO_SOUND)).toBe('Finished sound: none');
+    expect(volumeRowLabel(0.5)).toBe('Volume: 50 %');
+    expect(volumeRowLabel(0)).toBe('Volume: 0 %');
   });
 });
 
@@ -169,7 +169,7 @@ describe('FooterTree — la vue épinglée en bas', () => {
     const f = footer();
     f.setLibrary(100);
     const row = f.getChildren().find((n) => n.kind === 'library')!;
-    expect(f.getTreeItem(row).label).toBe('Bibliothèque de sons : 100 sons');
+    expect(f.getTreeItem(row).label).toBe('Sound library: 100 sounds');
     expect(f.getTreeItem(row).command?.command).toBe('kohVibe.removeSounds');
   });
 
