@@ -6,3 +6,4 @@ coverage/
 .vscode-test/
 .DS_Store
 .superpowers/
+build-info.json

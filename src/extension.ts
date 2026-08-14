@@ -13,6 +13,7 @@ import type { TranscriptStats } from './transcript/reader';
 import { withTokens } from './transcript/tokens';
 import { SessionsTree, groupIdOfNode } from './ui/tree';
 import { StatusSummary } from './ui/statusbar';
+import { readBuildStamp, versionLabel } from './ui/version';
 import { FocusBroker } from './focus/broker';
 import { acknowledgeClickedSession, acknowledgeVisibleSessions } from './focus/acknowledge';
 import { countKohEntries } from './hooks/installer';
@@ -57,6 +58,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     treeDataProvider: tree,
     dragAndDropController: tree,
   });
+
+  // Posée une fois : ni la version ni le commit ne changent tant que la fenêtre
+  // vit — un paquet réinstallé n'est vu qu'au rechargement, et c'est justement
+  // ce que cette ligne sert à constater.
+  view.description = versionLabel(await readBuildStamp(context.extensionPath));
 
   // Un seul avertissement par cause, jamais un par tick (le minuteur tourne
   // toutes les REFRESH_MS) : même précédent que `warnedMissingCommand` dans

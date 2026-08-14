@@ -14,6 +14,7 @@
 !resources/**
 !bin/koh-claude-bridge
 !scripts/install-hooks.cjs
+!build-info.json
 !package.json
 !README.md
 !CHANGELOG.md

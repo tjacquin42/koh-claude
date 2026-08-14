@@ -42,7 +42,7 @@
     }
   },
   "scripts": {
-    "build": "tsc -p .",
+    "build": "node scripts/stamp-build.cjs && tsc -p .",
     "watch": "tsc -w -p .",
     "test": "vitest run",
     "package": "vsce package --no-dependencies"
