@@ -51,6 +51,42 @@ const ICONS: Record<Status, { id: string; color: string }> = {
 
 const ORDER: Record<Status, number> = { waiting: 0, running: 1, done_unseen: 2, idle: 3, stale: 4 };
 
+/**
+ * Le glyphe des dossiers : `folder-opened`, jamais `folder`.
+ *
+ * VSCode traite `folder` et `file` à part : au lieu de dessiner le codicon, il
+ * délègue au thème d'icônes de fichiers — et quand ce thème est « Aucun »,
+ * il ne dessine RIEN. Les forks n'ont pas tous ce cas particulier : la même
+ * machine affichait donc un dossier dans un éditeur et rien dans l'autre.
+ * Un glyphe hors de cette liste est rendu de la même façon partout, et garde
+ * la couleur du dossier au passage.
+ */
+const GROUP_GLYPH = 'folder-opened';
+
+/**
+ * L'identité d'une ligne, stable d'un rendu à l'autre.
+ *
+ * Sans `id`, VSCode reconnaît une ligne à l'OBJET rendu par `getChildren` — et
+ * nous en construisons de neufs à chaque tour. Chaque rafraîchissement,
+ * fût-il déclenché par une seule minute qui tourne sur une seule session,
+ * faisait donc détruire et reconstruire TOUTES les lignes : l'infobulle qu'on
+ * était en train de lire disparaissait sous la souris. Ne plus rafraîchir pour
+ * rien (voir `refresh`) espaçait le symptôme ; c'est l'identité qui le
+ * supprime, parce qu'une ligne inchangée n'est alors plus refaite du tout.
+ */
+export function nodeId(node: TreeNode): string {
+  switch (node.kind) {
+    case 'group':
+      return `group:${node.group?.id ?? 'unfiled'}`;
+    case 'session':
+      return `session:${node.session.id}`;
+    case 'spacer':
+      return `spacer:${node.after}`;
+    default:
+      return 'empty';
+  }
+}
+
 function isSessionNode(node: TreeNode): node is Extract<TreeNode, { kind: 'session' }> {
   return node.kind === 'session';
 }
@@ -269,6 +305,7 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
   getTreeItem(node: TreeNode): vscode.TreeItem {
     if (node.kind === 'empty') {
       const item = new vscode.TreeItem(node.message);
+      item.id = 'empty';
       if (node.action === 'install') {
         item.command = { command: 'kohVibe.installHooks', title: 'Installer' };
       }
@@ -278,15 +315,18 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
       // Un libellé vide, et rien d'autre : pas d'icône (qui la rendrait visible),
       // pas de commande (qui la rendrait cliquable), pas de contextValue (qui lui
       // donnerait un menu). Elle n'est là que pour occuper une hauteur de ligne.
-      return new vscode.TreeItem('');
+      const item = new vscode.TreeItem('');
+      item.id = nodeId(node);
+      return item;
     }
     if (node.kind === 'group') {
       const item = new vscode.TreeItem(node.group?.name ?? 'Sans dossier', vscode.TreeItemCollapsibleState.Expanded);
+      item.id = nodeId(node);
       item.description = `${node.sessions.length} session${node.sessions.length > 1 ? 's' : ''}`;
       // « Sans dossier » n'est pas un dossier : il ne se colore pas, faute de
       // pouvoir porter un choix de l'utilisateur.
       const theme = themeColorOf(node.group?.color);
-      item.iconPath = new vscode.ThemeIcon('folder', theme === undefined ? undefined : new vscode.ThemeColor(theme));
+      item.iconPath = new vscode.ThemeIcon(GROUP_GLYPH, theme === undefined ? undefined : new vscode.ThemeColor(theme));
       // Le libellé suit l'icône : c'est le fournisseur de décorations qui le
       // colore, seul moyen offert par VSCode d'atteindre le texte d'une ligne.
       if (theme !== undefined && node.group !== undefined) {
@@ -301,6 +341,7 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
     const s = node.session;
     const now = Date.now();
     const item = new vscode.TreeItem(sessionLabel(s), vscode.TreeItemCollapsibleState.None);
+    item.id = nodeId(node);
     item.description = sessionDescription(s, now);
     item.tooltip = sessionTooltip(s, now);
     item.contextValue = 'session';

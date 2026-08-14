@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { SessionsTree, groupIdOfNode } from '../src/ui/tree';
+import { SessionsTree, groupIdOfNode, nodeId } from '../src/ui/tree';
 import type { TreeNode } from '../src/ui/tree';
 import type { Session } from '../src/events/types';
 import type { GroupsState } from '../src/groups/model';
@@ -327,7 +327,7 @@ describe('SessionsTree — espace et couleur des dossiers', () => {
     const tree = withGroups([{ id: 'g-1', name: 'Un', order: 0, color: 'green' }]);
     const [node] = await tree.getChildren();
     const icon = tree.getTreeItem(node).iconPath as { id: string; color?: { id: string } };
-    expect(icon.id).toBe('folder');
+    expect(icon.id).toBe('folder-opened');
     expect(icon.color?.id).toBe('charts.green');
   });
 
@@ -336,7 +336,7 @@ describe('SessionsTree — espace et couleur des dossiers', () => {
       const tree = withGroups([{ id: 'g-1', name: 'Un', order: 0, color }]);
       const [node] = await tree.getChildren();
       const icon = tree.getTreeItem(node).iconPath as { id: string; color?: { id: string } };
-      expect(icon.id).toBe('folder');
+      expect(icon.id).toBe('folder-opened');
       expect(icon.color).toBeUndefined();
     }
   });
@@ -563,5 +563,48 @@ describe('SessionsTree — ne prévient VSCode que si l affichage a changé', ()
     // Passe la minute : l affichage change, donc on annonce.
     tree.setSessions(new Map([['s1', session('s1', { status: 'idle', lastEventAt: now - 61_000 })]]));
     expect(heard.count()).toBe(1);
+  });
+});
+
+describe('identité des lignes — ce qui permet à une infobulle de survivre', () => {
+  it('donne à chaque ligne un identifiant stable, distinct de ses voisines', () => {
+    // Sans `id`, VSCode reconnaît une ligne à l OBJET rendu par getChildren, et
+    // nous en construisons de neufs à chaque tour : un seul rafraîchissement
+    // faisait détruire et refaire TOUTES les lignes, emportant l infobulle
+    // qu on était en train de lire.
+    const s = session('s1', 'running');
+    const group = { kind: 'group' as const, group: { id: 'g1', name: 'Perso', order: 0 }, sessions: [s] };
+    expect(nodeId(group)).toBe('group:g1');
+    expect(nodeId({ kind: 'session', session: s })).toBe('session:s1');
+    expect(nodeId({ kind: 'spacer', after: 'g2' })).toBe('spacer:g2');
+    expect(nodeId({ kind: 'group', group: undefined, sessions: [] })).toBe('group:unfiled');
+    expect(nodeId({ kind: 'empty', message: 'rien' })).toBe('empty');
+  });
+
+  it('pose cet identifiant sur l élément rendu, pas seulement dans la fonction', () => {
+    const tree = new SessionsTree(
+      async () => true,
+      async () => undefined,
+    );
+    tree.setSessions(new Map([['s1', session('s1', 'running')]]));
+    const nodes = [{ kind: 'session' as const, session: session('s1', 'running') }];
+    expect(tree.getTreeItem(nodes[0]!).id).toBe('session:s1');
+  });
+
+  it('ne demande jamais le glyphe que VSCode délègue au thème d icônes', () => {
+    // `folder` et `file` sont traités à part : au lieu de dessiner le codicon,
+    // VSCode passe la main au thème de fichiers, qui ne dessine rien quand il
+    // vaut « Aucun ». Un éditeur affichait donc un dossier, l autre rien.
+    const tree = new SessionsTree(
+      async () => true,
+      async () => undefined,
+    );
+    const item = tree.getTreeItem({
+      kind: 'group',
+      group: { id: 'g1', name: 'Perso', order: 0, color: 'green' },
+      sessions: [],
+    });
+    const icon = item.iconPath as { id: string };
+    expect(['folder', 'file']).not.toContain(icon.id);
   });
 });

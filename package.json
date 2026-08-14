@@ -44,30 +44,9 @@
       { "command": "kohVibe.soundGroup.done", "title": "Son du dossier quand c'est terminé", "category": "Koh-Vibe" },
       { "command": "kohVibe.soundSession.waiting", "title": "Son de la conversation quand ça t'attend", "category": "Koh-Vibe" },
       { "command": "kohVibe.soundSession.done", "title": "Son de la conversation quand c'est terminé", "category": "Koh-Vibe" },
+      { "command": "kohVibe.forgetSession", "title": "Retirer de la liste", "category": "Koh-Vibe" },
       { "command": "kohVibe.refreshUsage", "title": "Rafraîchir la consommation", "category": "Koh-Vibe" }
     ],
-    "configuration": {
-      "title": "Koh-Vibe",
-      "properties": {
-        "kohVibe.sound.waiting": {
-          "type": "string",
-          "default": "",
-          "description": "Son joué quand une session se met à attendre ta réponse. Vide = aucun son. Nom d'un fichier de /System/Library/Sounds ou de ~/Library/Sounds, sans extension."
-        },
-        "kohVibe.sound.done": {
-          "type": "string",
-          "default": "",
-          "description": "Son joué quand une session vient de finir. Vide = aucun son."
-        },
-        "kohVibe.sound.volume": {
-          "type": "number",
-          "default": 0.5,
-          "minimum": 0,
-          "maximum": 1,
-          "description": "Volume des carillons, de 0 à 1."
-        }
-      }
-    },
     "keybindings": [
       { "command": "kohVibe.replaySound", "key": "right", "when": "kohVibe.pickingSound && inQuickOpen" }
     ],
@@ -83,7 +62,8 @@
         { "command": "kohVibe.soundGroup.done", "when": "view == kohVibe.sessions && viewItem == group", "group": "son@2" },
         { "command": "kohVibe.deleteGroup", "when": "view == kohVibe.sessions && viewItem == group", "group": "zzz@1" },
         { "command": "kohVibe.soundSession.waiting", "when": "view == kohVibe.sessions && viewItem == session", "group": "son@1" },
-        { "command": "kohVibe.soundSession.done", "when": "view == kohVibe.sessions && viewItem == session", "group": "son@2" }
+        { "command": "kohVibe.soundSession.done", "when": "view == kohVibe.sessions && viewItem == session", "group": "son@2" },
+        { "command": "kohVibe.forgetSession", "when": "view == kohVibe.sessions && viewItem == session", "group": "zzz@1" }
       ]
     }
   },

@@ -3,14 +3,16 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import { groupsFile, kohVibeHome, legacyHome, spoolDirs } from './paths';
+import { groupsFile, kohVibeHome, legacyHome, settingsFile, spoolDirs } from './paths';
+import { readSettings, seedSettings, writeSettings } from './settings/store';
+import { defaultSettings, type AppSettings } from './settings/model';
 import { migrateLegacyHome } from './store/migrate';
 import { readUsage, refreshFromApi } from './usage/reader';
 import { chimeFor, statusesOf, type ChimeEvent } from './sound/model';
 import { availableSounds, clampVolume, DEFAULT_VOLUME, NO_SOUND, playFile, playNamed } from './sound/player';
 import { EVENT_TITLE, FooterTree, type SoundSettings } from './ui/footer-tree';
 import { UsageView } from './ui/usage-view';
-import { ensureDirs, readSessions } from './spool/persist';
+import { ensureDirs, readSessions, removeSession } from './spool/persist';
 import { SpoolWatcher } from './spool/watcher';
 import { pruneAssignmentsAfterPurge } from './groups/purge';
 import {
@@ -42,6 +44,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const migrated = await migrateLegacyHome(legacyHome(), home);
   const dirs = spoolDirs(home);
   const groupsPath = groupsFile(home);
+  const settingsPath = settingsFile(home);
   await ensureDirs(dirs);
   if (migrated === 'migrated') {
     void vscode.window.showInformationMessage(
@@ -76,21 +79,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   /**
-   * Les réglages du son, relus à chaque usage plutôt que captés au démarrage :
-   * ils vivent dans les réglages VSCode, donc modifiables depuis l'interface
-   * des réglages autant que depuis nos lignes.
+   * Les réglages du son, tenus dans un fichier PARTAGÉ entre éditeurs.
+   *
+   * Ils vivaient dans les réglages VSCode, donc dans ceux de chaque éditeur pris
+   * séparément : la même machine annonçait « Chute 3 » d'un côté et « Funk » de
+   * l'autre. Le classement en dossiers avait déjà tranché la question, et il n'y
+   * avait aucune raison que le son y échappe.
+   *
+   * Relus à chaque rendu et gardés ici : le carillon et les lignes de réglage en
+   * ont besoin de façon synchrone, au milieu d'un tour déjà asynchrone.
    */
+  let sound: AppSettings = defaultSettings();
+
   function soundSettings(): SoundSettings {
+    return sound;
+  }
+
+  /** Ce que cet éditeur avait chez lui, et qui ne servira qu'une fois. */
+  function legacySettings(): AppSettings {
     const config = vscode.workspace.getConfiguration('kohVibe');
     const name = (key: string): string => {
       const value = config.get(key);
       return typeof value === 'string' ? value : NO_SOUND;
     };
-    return {
-      waiting: name('sound.waiting'),
-      done: name('sound.done'),
-      volume: clampVolume(config.get('sound.volume')),
-    };
+    return { waiting: name('sound.waiting'), done: name('sound.done'), volume: clampVolume(config.get('sound.volume')) };
   }
 
   // Référence du tour précédent pour le carillon. `undefined` = premier rendu :
@@ -223,7 +235,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // partagé, et ce rendu-ci ne fait que lire le plus frais des deux.
         void refreshFromApi(home, false);
         usageView.setUsage(await readUsage(home));
-        footer.setSound(soundSettings());
+        sound = await readSettings(settingsPath);
+        footer.setSound(sound);
         footer.setLibrary(await installedCount(librarySoundsDir(home)));
         const map = await withTokens(await readSessions(dirs), transcripts, () => {
           if (transcriptFailureWarned) return;
@@ -245,7 +258,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const statuses = statusesOf(map);
         const changed = chimeFor(lastStatuses, statuses);
         if (changed !== undefined) {
-          const sound = soundSettings();
           const global = changed.event === 'waiting' ? sound.waiting : sound.done;
           // Le son de la conversation l'emporte, puis celui de son dossier, puis
           // le réglage global — voir `soundFor`.
@@ -394,9 +406,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Pas de niveau au-dessus : c'est le réglage global, le dernier recours.
       const chosen = await pickSound(EVENT_TITLE[which], undefined);
       if (chosen === undefined) return;
-      await vscode.workspace
-        .getConfiguration('kohVibe')
-        .update(`sound.${which}`, chosen.sound ?? NO_SOUND, vscode.ConfigurationTarget.Global);
+      await writeSettings(settingsPath, { [which]: chosen.sound ?? NO_SOUND });
       await render();
     }),
     vscode.commands.registerCommand('kohVibe.chooseVolume', async () => {
@@ -422,9 +432,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
       picker.dispose();
       if (chosen === undefined) return;
-      await vscode.workspace
-        .getConfiguration('kohVibe')
-        .update('sound.volume', Number.parseInt(chosen, 10) / 100, vscode.ConfigurationTarget.Global);
+      await writeSettings(settingsPath, { volume: Number.parseInt(chosen, 10) / 100 });
       await render();
     }),
     vscode.commands.registerCommand('kohVibe.installSounds', async () => {
@@ -499,6 +507,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await render();
       }),
     ]),
+    /**
+     * Retire une conversation du tableau de bord.
+     *
+     * Ne tue rien : Claude Code tourne dans son terminal, et cette extension
+     * n'en connaît que les traces. Une session ENCORE VIVANTE réapparaîtra donc
+     * à son prochain événement — c'est voulu, et le libellé du menu le dit
+     * (« retirer de la liste », pas « fermer »), plutôt que de laisser croire à
+     * un arrêt qui n'a pas eu lieu.
+     */
+    vscode.commands.registerCommand('kohVibe.forgetSession', async (node: unknown) => {
+      const id = sessionIdOfNode(node);
+      if (id === undefined) return;
+      try {
+        await removeSession(dirs, id);
+      } catch {
+        void vscode.window.showErrorMessage("Koh-Vibe : cette conversation n'a pas pu être retirée.");
+        return;
+      }
+      // Son rangement part avec elle : dossier, place choisie, sons propres.
+      // Le laisser ferait ressurgir un classement fantôme si l'identifiant
+      // revenait, et gonflerait le fichier partagé sans fin.
+      await pruneAssignmentsAfterPurge(dirs, groupsPath, [id]).catch(() => undefined);
+      await render();
+    }),
     vscode.commands.registerCommand('kohVibe.colorGroup', async (node: unknown) => {
       const id = groupIdOfNode(node);
       if (id === undefined) return;
@@ -526,6 +558,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
   );
 
+  // Avant le premier rendu : le fichier partagé n'existe pas encore chez qui
+  // vient de mettre à jour, et il faut y verser ce que CET éditeur avait dans
+  // ses propres réglages. Le premier démarré fixe la valeur ; les suivants la
+  // lisent — voir seedSettings, qui ne réécrit jamais un fichier présent.
+  await seedSettings(settingsPath, legacySettings);
   await render();
 }
 

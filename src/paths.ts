@@ -60,6 +60,16 @@ export function usageFile(home: string): string {
   return join(home, 'usage.json');
 }
 
+/**
+ * Réglages du son, partagés entre éditeurs.
+ *
+ * Même raison que le classement : la même machine ne doit pas annoncer deux
+ * carillons différents selon la fenêtre d'où on la regarde.
+ */
+export function settingsFile(home: string): string {
+  return join(home, 'settings.json');
+}
+
 /** Fichier partagé du classement en dossiers, à la racine de l'état de koh-vibe. */
 export function groupsFile(home: string): string {
   return join(home, 'groups.json');
