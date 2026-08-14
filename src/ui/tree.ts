@@ -4,6 +4,8 @@ import { withStaleness } from '../store/staleness';
 import { sessionDescription, sessionLabel, sessionTooltip, statusLabel } from './labels';
 import { emptyGroups, groupIdOf, reorder, sessionOrderOf, type Group, type GroupsState } from '../groups/model';
 import { themeColorOf } from './colors';
+import { usageColor, usageLabel, usageTooltip } from './usage-label';
+import type { Usage } from '../usage/model';
 
 export type TreeNode =
   // `group: undefined` désigne « Sans dossier », le reliquat des sessions non
@@ -15,6 +17,10 @@ export type TreeNode =
   // ligne. Elle ne porte donc ni commande, ni contextValue, ni identifiant —
   // rien qui la rende cliquable ou ciblable par un dépôt.
   | { kind: 'spacer'; after: string }
+  // La consommation mesurée par Claude Code, en tête de la vue. Absente tant que
+  // le pont de statusline n'est pas installé — auquel cas la ligne n'existe pas,
+  // plutôt que d'afficher zéro et de laisser croire à une consommation nulle.
+  | { kind: 'usage'; usage: Usage }
   // `action` distingue « il faut installer les hooks », cliquable, de « rien à
   // afficher », qui ne doit rien déclencher.
   | { kind: 'empty'; message: string; action?: 'install' };
@@ -81,6 +87,7 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
   readonly onDidChangeTreeData = this.emitter.event;
   private sessions: Session[] = [];
   private groups: GroupsState = emptyGroups();
+  private usage: Usage | undefined;
 
   constructor(
     // Reçoit la vérification plutôt que de la posséder : lire settings.json
@@ -106,6 +113,11 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
     this.sessions = [...map.values()]
       .map((s) => withStaleness(s, now))
       .sort((a, b) => ORDER[a.status] - ORDER[b.status] || b.lastEventAt - a.lastEventAt);
+    this.emitter.fire();
+  }
+
+  setUsage(usage: Usage | undefined): void {
+    this.usage = usage;
     this.emitter.fire();
   }
 
@@ -154,14 +166,19 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
 
   async getChildren(node?: TreeNode): Promise<TreeNode[]> {
     if (node === undefined) {
+      // En tête, et même quand il n'y a aucune session : la consommation ne
+      // dépend pas d'une session en cours, et c'est souvent après coup qu'on
+      // vient la regarder.
+      const head: TreeNode[] = this.usage === undefined ? [] : [{ kind: 'usage', usage: this.usage }];
       if (this.sessions.length === 0) {
         const installed = await this.checkHooksInstalled();
         if (!installed) {
           return [
+            ...head,
             { kind: 'empty', message: 'Hooks non installés — cliquez pour les installer', action: 'install' },
           ];
         }
-        return [{ kind: 'empty', message: 'Aucune session Claude Code active' }];
+        return [...head, { kind: 'empty', message: 'Aucune session Claude Code active' }];
       }
       const knownIds = new Set(this.groups.groups.map((g) => g.id));
       const byGroup = new Map<string, Session[]>();
@@ -187,7 +204,7 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
       if (unfiled.length > 0) {
         nodes.push({ kind: 'group', group: undefined, sessions: this.ordered(unfiled, undefined) });
       }
-      return withSpacers(nodes);
+      return [...head, ...withSpacers(nodes)];
     }
     if (node.kind === 'group') return node.sessions.map((session) => ({ kind: 'session', session }));
     return [];
@@ -199,6 +216,18 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
       if (node.action === 'install') {
         item.command = { command: 'kohClaude.installHooks', title: 'Installer' };
       }
+      return item;
+    }
+    if (node.kind === 'usage') {
+      const now = Date.now();
+      const item = new vscode.TreeItem(usageLabel(node.usage));
+      item.tooltip = usageTooltip(node.usage, now);
+      item.contextValue = 'usage';
+      const color = usageColor(node.usage);
+      item.iconPath = new vscode.ThemeIcon(
+        'pulse',
+        color === undefined ? undefined : new vscode.ThemeColor(color),
+      );
       return item;
     }
     if (node.kind === 'spacer') {

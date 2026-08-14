@@ -26,6 +26,16 @@ export function spoolDirs(home: string): SpoolDirs {
   };
 }
 
+/**
+ * Dernier instantané de la statusline, déposé par le pont. Un seul fichier
+ * réécrit, jamais un spool : contrairement aux événements de hooks, seule la
+ * valeur la plus récente a un sens — un historique de pourcentages périmés
+ * n'apprendrait rien et grossirait sans fin.
+ */
+export function statusFile(home: string): string {
+  return join(home, 'status.json');
+}
+
 /** Fichier partagé du classement en dossiers, à la racine de l'état de koh-claude. */
 export function groupsFile(home: string): string {
   return join(home, 'groups.json');

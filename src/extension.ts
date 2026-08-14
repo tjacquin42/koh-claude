@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
 import { groupsFile, kohClaudeHome, spoolDirs } from './paths';
+import { readUsage } from './usage/reader';
 import { ensureDirs, readSessions } from './spool/persist';
 import { SpoolWatcher } from './spool/watcher';
 import { pruneAssignmentsAfterPurge } from './groups/purge';
@@ -84,6 +85,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   async function render(): Promise<void> {
     return renderGuard.run(
       async () => {
+        // Lu à chaque rendu, comme l'état des sessions : un seul petit fichier,
+        // et le pont le réécrit à chaque message de Claude Code. Le mettre en
+        // cache ferait afficher un pourcentage périmé — le défaut qu'on a déjà
+        // payé trois fois dans ce projet.
+        tree.setUsage(await readUsage(home));
         const map = await withTokens(await readSessions(dirs), transcripts, () => {
           if (transcriptFailureWarned) return;
           transcriptFailureWarned = true;

@@ -13,6 +13,7 @@
 !out/**
 !resources/**
 !bin/koh-claude-bridge
+!bin/koh-claude-statusline
 !scripts/install-hooks.cjs
 !build-info.json
 !package.json
