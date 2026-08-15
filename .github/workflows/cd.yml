@@ -15,7 +15,14 @@ jobs:
     if: github.event_name == 'pull_request' && github.base_ref == 'main'
     runs-on: ubuntu-latest
     steps:
+      # Tout l'historique : l'étape suivante compare le manifeste de la PR à celui
+      # de la base, ce qui demande la branche de base, pas seulement la tête.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: La PR annonce-t-elle son niveau de version ?
+        id: niveau
         # Le corps passe par l'environnement, jamais interpolé dans le script :
         # `${{ }}` en plein `run` exécuterait ce qu'un corps de PR contient.
         env:
@@ -35,6 +42,59 @@ jobs:
               echo "Ajoute une ligne \`Version: major|minor|patch\` au corps de la PR."
               echo "Sans elle, la livraison sur \`main\` posera un **patch** par défaut."
             } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "niveau=${NIVEAU:-}" >> "$GITHUB_OUTPUT"
+
+      # `package.json` fait foi (CLAUDE.md) et `main` est protégée : le numéro ne
+      # peut être posé QUE dans cette PR, avant le merge. Personne ne pourra le
+      # rattraper après — d'où ce contrôle ici, au seul moment où c'est encore
+      # possible. Il avertit, il ne bloque pas : la livraison sait retomber sur le
+      # niveau annoncé, et un merge refusé pour un numéro coûte plus cher qu'il ne
+      # rapporte.
+      - name: Le numéro de version a-t-il été posé ?
+        env:
+          NIVEAU: ${{ steps.niveau.outputs.niveau }}
+        run: |
+          set -euo pipefail
+          lire() { node -pe "JSON.parse(require('node:fs').readFileSync(0,'utf8')).version"; }
+          APRES=$(lire < package.json)
+          AVANT=$(git show "origin/${{ github.base_ref }}:package.json" | lire)
+
+          if [ "$AVANT" = "$APRES" ]; then
+            echo "::warning::package.json est resté à $AVANT. Lance « scripts/set-version.sh ${NIVEAU:-patch} », commit, et repousse — sinon la livraison posera le numéro d'office et le manifeste restera faux."
+            {
+              echo "### Numéro de version non posé"
+              echo
+              echo "\`package.json\` porte toujours **$AVANT**, la version déjà livrée."
+              echo
+              echo '```bash'
+              echo "scripts/set-version.sh ${NIVEAU:-patch}"
+              echo '```'
+              echo
+              echo "\`main\` est protégée : la livraison ne peut pas écrire dans le dépôt."
+              echo "Ce que cette PR ne pose pas, personne ne le posera après elle."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # Le saut réellement effectué, comparé à celui annoncé : deux façons de
+          # dire la même chose, et c'est justement quand elles divergent qu'il faut
+          # le savoir — le corps de la PR sert de source au CHANGELOG et à la Release.
+          SAUT=$(node -e '
+            const [a, b] = process.argv.slice(1).map((v) => v.split(".").map(Number));
+            const lisible = [a, b].every((n) => n.length === 3 && !n.some(Number.isNaN));
+            console.log(
+              !lisible ? "illisible"
+              : b[0] > a[0] ? "major"
+              : b[1] > a[1] ? "minor"
+              : b[2] > a[2] ? "patch"
+              : "arrière",
+            );
+          ' "$AVANT" "$APRES")
+
+          echo "Version : **$AVANT → $APRES** (\`$SAUT\`)" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "${NIVEAU:-}" ] && [ "$SAUT" != "$NIVEAU" ]; then
+            echo "::warning::Le corps annonce « $NIVEAU » mais package.json fait un saut « $SAUT » ($AVANT → $APRES). Le tag suivra package.json ; c'est le texte de la Release qui sera faux."
           fi
 
   version:

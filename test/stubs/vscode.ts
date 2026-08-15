@@ -54,6 +54,15 @@ export class Uri {
     return new Uri(parts.scheme, parts.authority ?? '', parts.path ?? '', parts.query ?? '');
   }
 
+  /** Ce que SessionsTree appelle pour ses pastilles de statut. */
+  static file(path: string): Uri {
+    return new Uri('file', '', path, '');
+  }
+
+  get fsPath(): string {
+    return this.path;
+  }
+
   toString(): string {
     return `${this.scheme}://${this.authority}${this.path}?${this.query}`;
   }

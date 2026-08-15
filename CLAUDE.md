@@ -1,66 +1,100 @@
 # Koh-Vibe
 
-Extension VSCode pour un tableau de bord des sessions Claude Code.
+VSCode extension for a dashboard of running Claude Code sessions.
 
-## Versionning
+## Versioning
 
-**Une PR mergée sur `main` = une version, et une seule.** Le niveau se décide *à l'ouverture
-de la PR* — c'est là qu'on sait ce qu'on livre — et s'écrit dans son corps, sur sa propre ligne :
+**One pull request merged into `main` is one version, and only one.** The level is decided
+*when the pull request is opened* — that is when we know what ships — and written in its body,
+on a line of its own:
 
 ```
 Version: minor
 ```
 
-| Niveau | Quand |
+| Level | When |
 |---|---|
-| `major` | Rupture pour l'utilisateur ou rupture de contrat : format du spool, contrat des hooks Claude Code, nom des fichiers d'état. |
-| `minor` | Une capacité nouvelle et visible par l'utilisateur. |
-| `patch` | Correction, refonte interne, doc, dépendances, contenu. **Par défaut en cas d'hésitation.** |
+| `major` | A break for the user, or a broken contract: spool format, Claude Code hook contract, state file names. |
+| `minor` | A new capability, visible to the user. |
+| `patch` | A fix, an internal rework, documentation, dependencies, content. **The default when in doubt.** |
 
-Les commits poussés directement sur `main` ne bumpent pas : ils sont livrés avec la PR
-suivante et cités sous « Commits directs » dans son entrée de `CHANGELOG.md`.
+Commits pushed straight to `main` do not bump on their own: they ship inside the version of the
+next pull request.
 
-Une fois la PR mergée sur `main`, **la livraison s'en charge toute seule** : le job
-`version` de `.github/workflows/cd.yml` pose le tag, la Release GitHub, l'entrée de
-`CHANGELOG.md`, le label `vX.Y.Z` et la milestone.
+### `package.json` is the source of truth
 
-Si la ligne `Version:` manque, **un `patch` est posé par défaut** : une livraison sans
-version est un trou définitif dans l'historique, un patch de trop se rattrape. La CI
-avertit sur la PR, avant le merge. Rattrapage à la main si besoin :
+The `version` field of `package.json` **is** the extension's version. It is what VSCode, the
+Marketplace, the `.vsix` filename and the view's badge all read — and it is what decides the tag
+number, not the other way round.
+
+**It is updated in the promotion pull request, before the merge**, never after:
 
 ```bash
-scripts/bump-version.sh minor 42     # niveau + numéro de PR
+scripts/set-version.sh minor     # writes the number into package.json, then commit
 ```
 
-**Ne jamais poser un tag ni écrire une entrée de CHANGELOG à la main** : le script est la
-seule source, sinon les quatre artefacts divergent.
+This constraint is not a matter of style. `main` is protected and the Actions token has no
+bypass — GitHub reserves those for organisation repositories. **The delivery can therefore push
+nothing to `main`**: that is already why the `CHANGELOG.md` entry never lands there. A number
+written after the merge would never reach the file, and `package.json` would advertise the first
+release's version forever.
 
-La version courante se lit avec `gh release list` ou en tête de `CHANGELOG.md`.
-Les `package.json` ne portent **pas** la version : ils restent à leur valeur d'origine et
-ne font pas foi.
+Writing the number before the merge has a second effect, the one that motivated the change:
+`dev` carries the right version from the promotion onwards. As long as the version was derived
+from `git describe`, a package built from `dev` announced the *previous* one — the tag sits on
+the merge commit, which `dev` does not contain. The bug was silent and permanent.
 
-## Langue
+The CI on the pull request to `main` checks that the number moved and that it matches the
+announced level. It warns; it does not block.
 
-Trois régimes, à ne pas mélanger.
+### What the delivery does on its own
 
-**Le code est en anglais.** Tout ce qu'un contributeur extérieur lit pour comprendre le
-dépôt : noms de symboles, commentaires, messages de commit, titres et corps de PR, messages
-de merge, noms de branches, libellés d'issues. Le dépôt est public — un contributeur qui ne
-parle pas français doit pouvoir s'y retrouver seul.
+Once the pull request is merged, the `version` job of `.github/workflows/cd.yml` **reads the
+number from `package.json`** and posts the `vX.Y.Z` tag, the GitHub Release, the label and the
+milestone.
 
-**Les fichiers d'information sont bilingues.** `README.md` et `CONTRIBUTING.md` existent en
-anglais (fichier principal) et en français (suffixe `.fr.md`). L'anglais fait foi ; le
-français le suit. Les deux versions se modifient dans le même commit — une traduction en
-retard est pire qu'absente, parce qu'elle affirme quelque chose de faux.
+The `CHANGELOG.md` entry is the exception: the job writes it, but cannot push it, for the reason
+above. It waits in the job summary under « Entrée de CHANGELOG à reporter », and it is up to a
+follow-up pull request to carry it. Without that follow-up, `CHANGELOG.md` contradicts the tags —
+which is what happened to both `v0.1.0` and `v1.0.0`.
 
-`CHANGELOG.md` échappe à la règle : il est engendré par `bump-version.sh` à partir des titres
-de PR, qui sont en anglais. Le traduire supposerait de traduire des titres déjà livrés.
+If `package.json` was not bumped, the delivery does not stop: it applies the announced level to
+the current number and says so loudly. A version that ships without a number is a permanent hole
+in the history; a number posted one step too far can be corrected.
 
-**Le texte affiché suit l'utilisateur.** Aucune chaîne visible n'est écrite en dur dans une
-langue : les libellés contribués passent par `package.nls.json`, ceux du code par
-`vscode.l10n.t()`. L'anglais est la valeur par défaut — donc la chaîne écrite dans le source —
-et `l10n/bundle.l10n.fr.json` porte le français. Une langue sans traduction retombe sur
-l'anglais, jamais sur une chaîne vide.
+**Never post a tag or write a CHANGELOG entry by hand**: the scripts are the only source, or the
+artifacts drift apart. To catch up if needed:
 
-Exception assumée : **ce fichier**. `CLAUDE.md` s'adresse à l'outillage du projet et à son
-mainteneur, pas à ses contributeurs. Il reste en français et n'a pas de jumeau anglais.
+```bash
+scripts/bump-version.sh "" 42    # level read from the pull request, pull request number
+```
+
+The current version reads from `package.json`, from `gh release list`, or from the top of
+`CHANGELOG.md`.
+
+## Language
+
+Three regimes, not to be mixed.
+
+**The code is in English.** Everything an outside contributor reads to understand the
+repository: symbol names, comments, commit messages, pull request titles and bodies, merge
+messages, branch names, issue labels. The repository is public — a contributor who does not
+speak French has to be able to find their way alone.
+
+**This file follows that rule.** It describes the tooling of a public repository, and anyone
+who wants to work on that tooling has to be able to read it. It has no French twin: unlike the
+information files below, it has a single audience, and a second copy would only rot.
+
+**Information files are bilingual.** `README.md` and `CONTRIBUTING.md` exist in English (the
+main file) and in French (`.fr.md` suffix). English is authoritative; French follows. Both
+versions change in the same commit — a translation that lags is worse than a missing one,
+because it asserts something false.
+
+`CHANGELOG.md` escapes the rule: it is generated by `bump-version.sh` from pull request titles,
+which are in English. Translating it would mean translating titles that already shipped.
+
+**Displayed text follows the user.** No visible string is hard-coded in one language:
+contributed labels go through `package.nls.json`, the ones in the code through
+`vscode.l10n.t()`. English is the default — hence the string written in the source — and
+`l10n/bundle.l10n.fr.json` carries French. A language with no translation falls back to
+English, never to an empty string.
