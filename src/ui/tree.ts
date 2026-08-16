@@ -229,7 +229,11 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
       ]),
       this.groups.groups,
       this.groups.sessionOrder,
-      this.visibleClosed().map((e) => [e.id, closedDescription(e, now)]),
+      // The label too, not just the description: once a re-archive attaches a
+      // title it didn't have before (see closed/model.ts's `remember`), the
+      // label changes but the description can stay the same — without this,
+      // that redraw would be missed.
+      this.visibleClosed().map((e) => [e.id, sessionLabel(e), closedDescription(e, now)]),
     ]);
   }
 
@@ -309,8 +313,9 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
           ? { kind: 'empty', message: vscode.l10n.t('No active Claude Code session') }
           : { kind: 'empty', message: vscode.l10n.t('Hooks not installed — click to install them'), action: 'install' };
         // The section outlives the absence of any live session — that is even
-        // the moment it is most useful.
-        return closed === undefined ? [message] : [message, closed];
+        // the moment it is most useful. Through withSpacers like every other
+        // path below, so it keeps its separator line here too.
+        return closed === undefined ? [message] : withSpacers([message, closed]);
       }
       const knownIds = new Set(this.groups.groups.map((g) => g.id));
       const byGroup = new Map<string, Session[]>();

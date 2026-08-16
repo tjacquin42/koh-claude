@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import * as vscode from 'vscode';
 import { SessionsTree, nodeId } from '../src/ui/tree';
 import type { TreeNode } from '../src/ui/tree';
 import type { Session } from '../src/events/types';
@@ -48,11 +49,11 @@ describe('the recently closed section', () => {
     expect((await kinds(tree)).at(-1)).toBe('closedGroup');
   });
 
-  it('appears even when no session is alive', async () => {
+  it('appears even when no session is alive, with the same separator line as every other section', async () => {
     const tree = make();
     tree.setSessions(new Map());
     tree.setClosed([closed('z')]);
-    expect(await kinds(tree)).toEqual(['empty', 'closedGroup']);
+    expect(await kinds(tree)).toEqual(['empty', 'spacer', 'closedGroup']);
   });
 
   it('lists its entries as children, newest first', async () => {
@@ -79,6 +80,15 @@ describe('the recently closed section', () => {
     expect(await kinds(tree)).not.toContain('closedGroup');
   });
 
+  it('starts collapsed, unlike the folders', async () => {
+    const tree = make();
+    tree.setSessions(new Map());
+    tree.setClosed([closed('a')]);
+    const section = await sectionOf(tree);
+    const item = tree.getTreeItem(section!);
+    expect(item.collapsibleState).toBe(vscode.TreeItemCollapsibleState.Collapsed);
+  });
+
   it('makes a row reopen on a single click, and keeps it out of the session menus', async () => {
     const tree = make();
     tree.setSessions(new Map());
@@ -101,6 +111,21 @@ describe('the recently closed section', () => {
     tree.setClosed([closed('a')]);
     expect(fired).toBe(1);
     tree.setClosed([closed('a'), closed('b')]);
+    expect(fired).toBe(2);
+  });
+
+  it('redraws when only the title changes, even though the description text stays identical', async () => {
+    // A re-archive (Critical 1) can attach a title an entry did not have
+    // before, without touching project, branch or closedAt — so
+    // closedDescription() renders the same string either way. Only the
+    // LABEL (sessionLabel) differs, and the signature must catch that.
+    const tree = make();
+    tree.setSessions(new Map());
+    let fired = 0;
+    tree.onDidChangeTreeData(() => { fired += 1; });
+    tree.setClosed([closed('a', { title: 'Titre un' })]);
+    expect(fired).toBe(1);
+    tree.setClosed([closed('a', { title: 'Titre deux' })]);
     expect(fired).toBe(2);
   });
 });
