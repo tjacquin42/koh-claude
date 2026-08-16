@@ -116,15 +116,23 @@ export const l10n = {
   },
 };
 
+export interface StubTerminal {
+  sendText: (text: string) => void;
+  show: () => void;
+}
+
 export const window = {
   showInformationMessage: async (..._args: unknown[]): Promise<string | undefined> => undefined,
   showWarningMessage: async (..._args: unknown[]): Promise<string | undefined> => undefined,
   createTreeView: (..._args: unknown[]): never => {
     throw new Error('vscode.window.createTreeView non bouchonné');
   },
-  createTerminal: (..._args: unknown[]): never => {
-    throw new Error('vscode.window.createTerminal non bouchonné');
-  },
+  // Made observable rather than fatal: reopening a terminal conversation
+  // depends on it, and a test has to be able to check WHAT is sent.
+  createTerminal: (_options: { cwd?: string; name?: string }): StubTerminal => ({
+    sendText: () => undefined,
+    show: () => undefined,
+  }),
 };
 
 export const workspace: { workspaceFolders: Array<{ uri: { fsPath: string } }> | undefined } = {

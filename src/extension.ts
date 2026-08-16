@@ -4,8 +4,9 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
 import { closedFile, groupsFile, kohVibeHome, legacyHome, settingsFile, spoolDirs } from './paths';
-import { rememberClosed } from './closed/store';
-import { toClosedEntry } from './closed/model';
+import { readClosed, rememberClosed } from './closed/store';
+import { toClosedEntry, type ClosedEntry } from './closed/model';
+import { reopenPlan } from './closed/reopen';
 import { readSettings, seedSettings, writeSettings } from './settings/store';
 import { defaultSettings, type AppSettings } from './settings/model';
 import { migrateLegacyHome } from './store/migrate';
@@ -28,6 +29,7 @@ import { installedCount, installLibrary, LIBRARY, librarySoundsDir, removeLibrar
 import type { TranscriptStats } from './transcript/reader';
 import { withTokens } from './transcript/tokens';
 import { SessionsTree, groupIdOfNode, sessionIdOfNode } from './ui/tree';
+import { sessionLabel } from './ui/labels';
 import { decorationColorOf } from './ui/decorations';
 import { StatusSummary } from './ui/statusbar';
 import { readBuildStamp, versionLabel } from './ui/version';
@@ -270,6 +272,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // vaut « classement vide », voir groups/store.ts) : aucune garde de
         // type `*FailureWarned` n'est nécessaire ici.
         const groups = await readGroups(groupsPath);
+        // Re-read on every render, never cached: shared file, another window
+        // may have closed a conversation between two rounds. `readClosed` never
+        // fails (absent or unreadable means "empty list").
+        const closed = await readClosed(closedPath);
         // Le carillon avant l'affichage : `shouldChime` compare l'état du tour
         // précédent au nouveau, et `lastStatuses` doit avancer à CHAQUE rendu,
         // même silencieux — sinon la comparaison se ferait contre un état de
@@ -285,6 +291,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         lastStatuses = statuses;
         tree.setSessions(map);
         tree.setGroups(groups);
+        tree.setClosed(closed.closed);
         status.update(map);
       },
       () => {
@@ -364,6 +371,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // acknowledgeClickedSession est testée directement, comme sa jumelle.
       void acknowledgeClickedSession(dirs, s).catch(() => undefined);
       void broker.request(s).catch(() => undefined);
+    }),
+    vscode.commands.registerCommand('kohVibe.reopenSession', async (entry: ClosedEntry) => {
+      const plan = reopenPlan(entry.origin, entry.id, entry.cwd, sessionLabel(entry));
+      if (plan.kind === 'explain') {
+        void vscode.window.showInformationMessage(plan.message);
+        return;
+      }
+      if (plan.kind === 'terminal') {
+        // A fresh terminal, on the conversation's folder: the old one is gone,
+        // and koh-vibe does not yet know which one it was.
+        const terminal = vscode.window.createTerminal({ cwd: plan.cwd, name: plan.name });
+        terminal.sendText(plan.command);
+        terminal.show();
+        return;
+      }
+      // The tab can only come back in a window that holds the project: the
+      // broker takes care of that, locally or by request.
+      await broker.requestReopen(entry).catch(() => undefined);
     }),
     vscode.commands.registerCommand('kohVibe.installHooks', () => {
       const terminal = vscode.window.createTerminal('Koh-Vibe');
