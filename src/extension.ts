@@ -330,7 +330,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     Date.now,
     // The closed-conversation history. Errors are NOT swallowed here: `drain`
     // relies on the rejection to leave the event in place and retry it.
-    (s) => rememberClosed(closedPath, toClosedEntry(s, Date.now())).then(() => undefined),
+    //
+    // `s` is `current`, read straight off disk by `drain`: `title`, and
+    // `branch` for anything but a worktree path, are never written to
+    // `sessions/<id>.json` — `withTokens` (transcript/tokens.ts) only ever
+    // attaches them to the in-memory Map that `render()` holds here, in
+    // `transcripts`. Without this lookup, every archived conversation would
+    // carry neither, and five closed conversations of the same project would
+    // all show the bare project name.
+    (s) => {
+      const stats = transcripts.get(s.id);
+      const source = { ...s, title: s.title ?? stats?.title, branch: s.branch ?? stats?.branch };
+      return rememberClosed(closedPath, toClosedEntry(source, Date.now())).then(() => undefined);
+    },
   );
   watcher.start();
   broker.start();

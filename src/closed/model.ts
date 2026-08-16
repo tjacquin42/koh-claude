@@ -61,9 +61,21 @@ export function emptyClosed(): ClosedState {
  * Idempotent by construction: `cap` deduplicates by id, so replaying a
  * `SessionEnd` — which an abandoned drain or a second window can do — adds
  * nothing.
+ *
+ * Carries a known `title`/`branch` forward when the incoming entry lacks one:
+ * `toClosedEntry` is only ever as good as what the archiving window had in
+ * memory for that session, and a window that never rendered it has nothing
+ * to offer. Without this, a later re-archive (an abandoned drain retried, a
+ * second window racing the first) could silently replace a titled entry with
+ * an untitled one. An incoming value still wins whenever it is present — this
+ * only fills a gap, never overrides.
  */
 export function remember(s: ClosedState, entry: ClosedEntry): ClosedState {
-  return { ...s, closed: cap([entry, ...s.closed]) };
+  const known = s.closed.find((e) => e.id === entry.id);
+  const enriched: ClosedEntry = { ...entry };
+  if (enriched.title === undefined && known?.title !== undefined) enriched.title = known.title;
+  if (enriched.branch === undefined && known?.branch !== undefined) enriched.branch = known.branch;
+  return { ...s, closed: cap([enriched, ...s.closed]) };
 }
 
 /**

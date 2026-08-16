@@ -42,6 +42,33 @@ describe('remember', () => {
     const twice = remember(once, entry('a', 5));
     expect(twice.closed).toEqual(once.closed);
   });
+
+  it('carries a title already known for that id forward when a re-archive lacks one', () => {
+    // A window that never rendered this conversation has no transcript entry
+    // for it, so its own archive call has no title to offer — but the entry
+    // already in the file does, and that must not be lost.
+    const withTitle = remember(emptyClosed(), entry('a', 1, { title: 'Ajouter la corbeille' }));
+    const reArchived = remember(withTitle, entry('a', 5));
+    expect(reArchived.closed[0]).toMatchObject({ id: 'a', title: 'Ajouter la corbeille', closedAt: 5 });
+  });
+
+  it('carries a branch already known for that id forward the same way', () => {
+    const withBranch = remember(emptyClosed(), entry('a', 1, { branch: 'feat-x' }));
+    const reArchived = remember(withBranch, entry('a', 5));
+    expect(reArchived.closed[0]).toMatchObject({ id: 'a', branch: 'feat-x', closedAt: 5 });
+  });
+
+  it('lets an incoming title win over an older one, rather than always keeping the first', () => {
+    const first = remember(emptyClosed(), entry('a', 1, { title: 'Old' }));
+    const second = remember(first, entry('a', 5, { title: 'New' }));
+    expect(second.closed[0]?.title).toBe('New');
+  });
+
+  it('never carries a title from one id over to another', () => {
+    const withTitle = remember(emptyClosed(), entry('a', 1, { title: 'Titre de a' }));
+    const other = remember(withTitle, entry('b', 2));
+    expect(other.closed.find((e) => e.id === 'b')?.title).toBeUndefined();
+  });
 });
 
 describe('parseClosed', () => {
