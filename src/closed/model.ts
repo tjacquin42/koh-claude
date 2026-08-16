@@ -49,6 +49,17 @@ const ORIGINS: Record<Origin, true> = {
 
 const KNOWN = new Set(['version', 'closed']);
 
+/**
+ * Whether `reopenPlan` (closed/reopen.ts) can turn this origin into something
+ * that actually brings a conversation back — `vscode`/`desktop` through the
+ * editor command, `terminal` in a fresh shell. `sdk` and `unknown` only ever
+ * produce an `explain` plan, so a row carrying either promises nothing it can
+ * deliver.
+ */
+export function isReopenable(origin: Origin): boolean {
+  return origin === 'vscode' || origin === 'desktop' || origin === 'terminal';
+}
+
 export function emptyClosed(): ClosedState {
   return { closed: [], unknown: {} };
 }
@@ -112,7 +123,9 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 }
 
 function text(v: unknown): string | undefined {
-  return typeof v === 'string' && v.length > 0 ? v : undefined;
+  if (typeof v !== 'string') return undefined;
+  const t = v.trim();
+  return t.length > 0 ? t : undefined;
 }
 
 // A type predicate rather than a cast: the value comes from a file nobody

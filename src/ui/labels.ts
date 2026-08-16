@@ -1,6 +1,6 @@
 import { basename } from 'node:path';
 import * as vscode from 'vscode';
-import type { ClosedEntry } from '../closed/model';
+import { isReopenable, type ClosedEntry } from '../closed/model';
 import type { Session, Status } from '../events/types';
 
 /**
@@ -56,13 +56,23 @@ export function formatTokens(n: number): string {
 }
 
 /**
+ * Where a session (live or closed) works: the project alone, or the project
+ * and its branch joined by `separator`. Factored out because the same rule —
+ * only the separator changes, `·` in a description, `/` in a tooltip — was
+ * inlined four times across this file.
+ */
+function projectAndBranch(s: { project: string; branch?: string }, separator: string): string {
+  return s.branch === undefined ? s.project : `${s.project}${separator}${s.branch}`;
+}
+
+/**
  * The title completes the line, it does not replace it: without one (the first
  * seconds of a session, before Claude sets it), falling back to project · branch
  * is the only thing left saying where the session works.
  */
 export function sessionLabel(s: Pick<Session, 'title' | 'branch' | 'project'>): string {
   if (s.title !== undefined) return s.title;
-  return s.branch === undefined ? s.project : `${s.project} · ${s.branch}`;
+  return projectAndBranch(s, ' · ');
 }
 
 // Whitespace — including the newlines of a multi-line Bash command — is
@@ -83,14 +93,13 @@ export function sessionDescription(s: Session, now: number): string {
   // carries it, by colour. The word does not disappear for all that — it stays
   // in the tooltip and in the accessibility label, the two places where an icon
   // is not enough.
-  const where = s.branch === undefined ? s.project : `${s.project} · ${s.branch}`;
   const age = formatAgeCoarse(now - s.lastEventAt);
-  return s.title === undefined ? age : `${where} · ${age}`;
+  return s.title === undefined ? age : `${projectAndBranch(s, ' · ')} · ${age}`;
 }
 
 export function sessionTooltip(s: Session, now: number): string {
   const lines = [
-    `${s.project}${s.branch === undefined ? '' : ` / ${s.branch}`}`,
+    projectAndBranch(s, ' / '),
     `${statusLabel(s.status)} · ${formatAge(now - s.lastEventAt)}`,
     vscode.l10n.t('origin: {0}', s.origin),
     // Two strings rather than one with a suffix: no European language builds a
@@ -110,18 +119,27 @@ export function sessionTooltip(s: Session, now: number): string {
  * Coarse age, like the live rows: the tree compares what it renders to decide
  * whether to redraw, and a label that moves every second rebuilds the view
  * constantly. The precise age stays in the tooltip.
+ *
+ * Follows the same rule as `sessionDescription`: the label (`sessionLabel`)
+ * already shows "project · branch" whenever there is no title, so repeating
+ * it here would make the accessibility label read "projet, projet · closed 3
+ * min" — the project said twice for no reason. `where` is prepended only once
+ * a title has taken over the label.
  */
-export function closedDescription(e: Pick<ClosedEntry, 'project' | 'branch' | 'closedAt'>, now: number): string {
-  const where = e.branch === undefined ? e.project : `${e.project} · ${e.branch}`;
-  return `${where} · ${vscode.l10n.t('closed {0}', formatAgeCoarse(now - e.closedAt))}`;
+export function closedDescription(e: Pick<ClosedEntry, 'project' | 'branch' | 'title' | 'closedAt'>, now: number): string {
+  const age = vscode.l10n.t('closed {0}', formatAgeCoarse(now - e.closedAt));
+  return e.title === undefined ? age : `${projectAndBranch(e, ' · ')} · ${age}`;
 }
 
 export function closedTooltip(e: ClosedEntry, now: number): string {
-  return [
-    `${e.project}${e.branch === undefined ? '' : ` / ${e.branch}`}`,
+  const lines = [
+    projectAndBranch(e, ' / '),
     vscode.l10n.t('closed {0} ago', formatAge(now - e.closedAt)),
     vscode.l10n.t('origin: {0}', e.origin),
-    vscode.l10n.t('Click to reopen'),
-    e.cwd,
-  ].join('\n');
+  ];
+  // Only promise what `reopenPlan` can actually deliver: `sdk`/`unknown`
+  // origins always resolve to an `explain` plan, never a reopen.
+  if (isReopenable(e.origin)) lines.push(vscode.l10n.t('Click to reopen'));
+  lines.push(e.cwd);
+  return lines.join('\n');
 }

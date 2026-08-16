@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   emptyClosed,
+  isReopenable,
   MAX_CLOSED,
   parseClosed,
   remember,
@@ -99,6 +100,30 @@ describe('parseClosed', () => {
   it('carries unknown top-level keys through a round trip', () => {
     const raw = JSON.stringify({ closed: [], somethingNewer: { a: 1 } });
     expect(JSON.parse(serializeClosed(parseClosed(raw)))).toMatchObject({ somethingNewer: { a: 1 } });
+  });
+
+  it('trims text fields, like name() does in the groups model', () => {
+    const raw = JSON.stringify({
+      closed: [
+        { id: 'a', cwd: '  /Users/dev/projet  ', project: '  projet  ', branch: '  feat-x  ', title: '  Titre  ', origin: 'vscode', closedAt: 1 },
+      ],
+    });
+    expect(parseClosed(raw).closed[0]).toMatchObject({
+      cwd: '/Users/dev/projet',
+      project: 'projet',
+      branch: 'feat-x',
+      title: 'Titre',
+    });
+  });
+});
+
+describe('isReopenable', () => {
+  it('matches exactly the origins reopenPlan turns into something other than an explanation', () => {
+    expect(isReopenable('vscode')).toBe(true);
+    expect(isReopenable('desktop')).toBe(true);
+    expect(isReopenable('terminal')).toBe(true);
+    expect(isReopenable('sdk')).toBe(false);
+    expect(isReopenable('unknown')).toBe(false);
   });
 });
 
