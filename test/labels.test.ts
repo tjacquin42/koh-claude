@@ -146,4 +146,12 @@ describe('closed conversations', () => {
     expect(lines).toContain('Click to reopen');
     expect(lines.at(-1)).toBe('/Users/dev/projet');
   });
+
+  it('tells the origin and how to bring it back in the tooltip, without a branch', () => {
+    const lines = closedTooltip(closed(), 60_000).split('\n');
+    expect(lines[0]).toBe('projet');
+    expect(lines).toContain('origin: vscode');
+    expect(lines).toContain('Click to reopen');
+    expect(lines.at(-1)).toBe('/Users/dev/projet');
+  });
 });
