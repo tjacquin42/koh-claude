@@ -18,8 +18,10 @@ and the hook bridges are zsh scripts.
   the ones working, then the ones that just finished.
 - **A status dot** per session — one glyph, five colours — next to the project, the branch and
   the tool currently running.
+- **Recently closed**, the five conversations that ended most recently, kept below the live
+  ones so a session you just finished with is not gone the instant it disappears.
 - **Your usage** over five hours and seven days, with the time until it resets.
-- **One click** opens or resumes a session's window, wherever it lives.
+- **One click** opens or resumes a session's window, wherever it lives — a closed one included.
 
 ## Install
 
@@ -70,6 +72,11 @@ In the picker, the arrow keys play each sound; **→** replays the highlighted o
 **Removing.** Right-click a session → *Remove from the list*. Nothing is stopped: Claude Code
 runs in its own terminal, and a session still alive reappears on its next event.
 
+**Reopening.** A conversation that just ended does not vanish: it moves into *Recently
+closed*, below the live sessions, for as long as four more have not pushed it out. One click
+brings it back — in the editor tab it ran in, or a fresh terminal on its folder, whichever it
+came from.
+
 ## Where the data lives
 
 Everything sits under `~/.koh-vibe/`:
@@ -80,9 +87,10 @@ Everything sits under `~/.koh-vibe/`:
 | `events/` | the spool: one file per event, consumed then deleted |
 | `events/rejected/` | what could not be read, kept rather than dropped |
 | `sessions/` | the reduced state, one file per session |
-| `requests/` | focus requests, from one window to another |
+| `requests/` | focus and reopen requests, from one window to another |
 | `backups/` | copies of `settings.json` taken before each hook install |
 | `groups.json` | folders, their colours, the chosen order and the sounds |
+| `closed.json` | the five most recently closed conversations |
 | `settings.json` | global sounds and volume |
 | `usage.json` | the last usage reading, cached |
 | `status.json` | the last status-line snapshot |
