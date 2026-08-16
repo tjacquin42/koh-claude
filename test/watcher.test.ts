@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { spoolDirs, type SpoolDirs } from '../src/paths';
 import { ensureDirs, readSessions, writeSession } from '../src/spool/persist';
 import { appendLocalEvent, drain, MAX_EVENT_AGE_MS, SpoolWatcher } from '../src/spool/watcher';
+import { SESSION_PURGE_MS } from '../src/store/staleness';
+import type { Session } from '../src/events/types';
 
 // `node:fs/promises` est un module natif : ses exports ne sont pas
 // redéfinissables via vi.spyOn. On le mocke entièrement, en délégant à
@@ -322,7 +324,7 @@ describe('drain — échec permanent (N3)', () => {
 
     const onChange = vi.fn();
     const onError = vi.fn();
-    const watcher = new SpoolWatcher(dirs, onChange, onError, () => createdAt + MAX_EVENT_AGE_MS + 1);
+    const watcher = new SpoolWatcher(dirs, onChange, onError, () => createdAt + MAX_EVENT_AGE_MS + 1, async () => undefined);
     const internal = watcher as unknown as { tick: () => Promise<void> };
 
     await internal.tick();
@@ -529,7 +531,7 @@ describe('SpoolWatcher', () => {
     const missingDirs = spoolDirs(join(home, 'pas-encore-cree'));
     const onChange = vi.fn();
     const onError = vi.fn();
-    const watcher = new SpoolWatcher(missingDirs, onChange, onError, () => NOW);
+    const watcher = new SpoolWatcher(missingDirs, onChange, onError, () => NOW, async () => undefined);
     const internal = watcher as unknown as { watcher?: unknown; timer?: NodeJS.Timeout };
 
     expect(() => watcher.start()).not.toThrow();
@@ -543,7 +545,7 @@ describe('SpoolWatcher', () => {
     const missingDirs = spoolDirs(join(home, 'pas-encore-cree'));
     const onChange = vi.fn();
     const onError = vi.fn();
-    const watcher = new SpoolWatcher(missingDirs, onChange, onError, () => NOW);
+    const watcher = new SpoolWatcher(missingDirs, onChange, onError, () => NOW, async () => undefined);
     const internal = watcher as unknown as { tick: () => Promise<void> };
 
     // Le dossier events n'existe pas encore quand ce SpoolWatcher est
@@ -570,7 +572,7 @@ describe('SpoolWatcher', () => {
   it('stop() ferme le FSWatcher et efface le minuteur de secours ; le déclenchement est piloté par tick(), jamais par fs.watch ou un délai', async () => {
     const onChange = vi.fn();
     const onError = vi.fn();
-    const watcher = new SpoolWatcher(dirs, onChange, onError, () => NOW);
+    const watcher = new SpoolWatcher(dirs, onChange, onError, () => NOW, async () => undefined);
     const internal = watcher as unknown as {
       watcher?: { close: () => void };
       timer?: NodeJS.Timeout;
@@ -610,7 +612,7 @@ describe('SpoolWatcher', () => {
   it('la garde de non-réentrance ne fait perdre aucun fichier : un événement déposé pendant une vidange finit consommé', async () => {
     const onChange = vi.fn();
     const onError = vi.fn();
-    const watcher = new SpoolWatcher(dirs, onChange, onError, () => NOW);
+    const watcher = new SpoolWatcher(dirs, onChange, onError, () => NOW, async () => undefined);
     const internal = watcher as unknown as { guard: { running: boolean }; tick: () => Promise<void> };
 
     // Simule une vidange déjà en cours.
@@ -636,7 +638,7 @@ describe('SpoolWatcher', () => {
       throw new Error('bug dans onChange');
     });
     const onError = vi.fn();
-    const watcher = new SpoolWatcher(dirs, onChange, onError, () => NOW);
+    const watcher = new SpoolWatcher(dirs, onChange, onError, () => NOW, async () => undefined);
     const internal = watcher as unknown as { guard: { running: boolean }; tick: () => Promise<void> };
 
     await dropEvent('1-1-SessionStart.json', hook('SessionStart', 1));
@@ -651,5 +653,51 @@ describe('SpoolWatcher', () => {
     await dropEvent('2-1-Stop.json', hook('Stop', 2));
     await internal.tick();
     expect((await readSessions(dirs)).get('s1')?.status).toBe('done_unseen');
+  });
+});
+
+describe('archiving a closed conversation', () => {
+  it('archives the session it is about to delete, before deleting it', async () => {
+    await dropEvent('1-1-SessionStart.json', hook('SessionStart', 1));
+    await drain(dirs, NOW);
+
+    const seen: Array<{ id: string; stillOnDisk: boolean }> = [];
+    const archive = async (s: Session): Promise<void> => {
+      seen.push({ id: s.id, stillOnDisk: existsSync(join(dirs.sessions, `${s.id}.json`)) });
+    };
+
+    await dropEvent('2-1-SessionEnd.json', hook('SessionEnd', 2));
+    await drain(dirs, NOW, undefined, archive);
+
+    expect(seen).toEqual([{ id: 's1', stillOnDisk: true }]);
+    expect(existsSync(join(dirs.sessions, 's1.json'))).toBe(false);
+  });
+
+  it('archives nothing for a SessionEnd whose session was never seen', async () => {
+    const archive = vi.fn(async () => undefined);
+    await dropEvent('1-1-SessionEnd.json', hook('SessionEnd', 1, { session_id: 'ghost' }));
+    await drain(dirs, NOW, undefined, archive);
+    expect(archive).not.toHaveBeenCalled();
+  });
+
+  it('archives nothing when a session is purged for staleness', async () => {
+    const archive = vi.fn(async () => undefined);
+    await writeSession(dirs, session('s1', 0));
+    const res = await drain(dirs, SESSION_PURGE_MS + 1, undefined, archive);
+    expect(res.purged).toEqual(['s1']);
+    expect(archive).not.toHaveBeenCalled();
+  });
+
+  it('leaves the event in place when archiving fails, so it is retried', async () => {
+    await dropEvent('1-1-SessionStart.json', hook('SessionStart', 1));
+    await drain(dirs, NOW);
+    const failing = async (): Promise<void> => {
+      throw new Error('disque plein');
+    };
+    await dropEvent('2-1-SessionEnd.json', hook('SessionEnd', 2));
+    const res = await drain(dirs, NOW, undefined, failing);
+    expect(res.deferred).toBe(1);
+    expect(existsSync(join(dirs.sessions, 's1.json'))).toBe(true);
+    expect(readdirSync(dirs.events).filter((f) => f.endsWith('.json'))).toHaveLength(1);
   });
 });

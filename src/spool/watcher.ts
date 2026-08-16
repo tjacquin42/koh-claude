@@ -2,6 +2,7 @@ import { watch, type FSWatcher } from 'node:fs';
 import { readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SpoolDirs } from '../paths';
+import type { Session } from '../events/types';
 import { parseSpoolFile } from '../events/parse';
 import { reduce } from '../store/reduce';
 import { SESSION_PURGE_MS } from '../store/staleness';
@@ -24,6 +25,14 @@ export interface DrainResult {
    * signaler l'abandon plutôt que de le laisser invisible. */
   rejectedPermanently: string[];
 }
+
+/**
+ * Archives a conversation that has just ended, before its state file is
+ * deleted. Injected rather than imported: `drain` knows the spool, not the
+ * shared files that sit next to it — and the tests that do not care about
+ * archiving keep calling `drain` without it.
+ */
+export type ArchiveClosed = (s: Session) => Promise<void>;
 
 /**
  * Au-delà de cet âge, un événement qui échoue encore n'est plus considéré
@@ -93,7 +102,12 @@ function eventTimestamp(name: string): number | undefined {
  * avant de supprimer l'événement » est ce qui rend cet abandon sans perte —
  * l'événement, ni appliqué ni supprimé, sera retraité par le passage frais.
  */
-export async function drain(dirs: SpoolDirs, now: number, signal?: AbandonSignal): Promise<DrainResult> {
+export async function drain(
+  dirs: SpoolDirs,
+  now: number,
+  signal?: AbandonSignal,
+  archive?: ArchiveClosed,
+): Promise<DrainResult> {
   let names: string[] = [];
   try {
     names = await readdir(dirs.events);
@@ -147,6 +161,19 @@ export async function drain(dirs: SpoolDirs, now: number, signal?: AbandonSignal
       }
 
       if (next === undefined) {
+        // Archive BEFORE deleting, for the same reason the state is written
+        // before the event is removed: whatever fails here leaves the event in
+        // place (it comes back through `deferred`, below), so nothing is lost.
+        // The other order would drop the conversation out of the view without
+        // it ever entering the history.
+        //
+        // `SessionEnd` only: it is the one event that means "this conversation
+        // is over". A session purged for staleness (`purgeStaleSessions`,
+        // below) was not closed, it was forgotten — and it does not come
+        // through here.
+        if (ev.event === 'SessionEnd' && current !== undefined && archive !== undefined) {
+          await archive(current);
+        }
         await removeSession(dirs, ev.sessionId);
       } else {
         await writeSession(dirs, next);
@@ -258,6 +285,10 @@ export class SpoolWatcher {
     // `at` sont de petits entiers). Le process long de l'extension garde le
     // comportement par défaut.
     private readonly now: () => number = Date.now,
+    // Required: this is the only production path into `drain`, so it is the
+    // only place where forgetting it must be a compile error rather than a
+    // silently empty history.
+    private readonly archive: ArchiveClosed,
   ) {}
 
   start(): void {
@@ -287,7 +318,7 @@ export class SpoolWatcher {
 
   private tick(): Promise<void> {
     return this.guard.run(async (signal) => {
-      const res = await drain(this.dirs, this.now(), signal);
+      const res = await drain(this.dirs, this.now(), signal, this.archive);
       if (res.rejectedPermanently.length > 0) {
         // Signalement dédié : drain() n'a pas échoué (les autres événements
         // se sont appliqués normalement), mais celui-ci a échoué alors qu'il

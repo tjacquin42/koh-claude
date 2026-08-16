@@ -66,6 +66,26 @@ export function remember(s: ClosedState, entry: ClosedEntry): ClosedState {
   return { ...s, closed: cap([entry, ...s.closed]) };
 }
 
+/**
+ * The snapshot kept of a conversation that has just ended.
+ *
+ * Optional fields are omitted rather than written as `undefined`, so a round
+ * trip through JSON does not leave dead keys behind — same rule as
+ * `setGroupColor`.
+ */
+export function toClosedEntry(s: ClosedSource, closedAt: number): ClosedEntry {
+  const entry: ClosedEntry = { id: s.id, cwd: s.cwd, project: s.project, origin: s.origin, closedAt };
+  if (s.branch !== undefined) entry.branch = s.branch;
+  if (s.title !== undefined) entry.title = s.title;
+  return entry;
+}
+
+/**
+ * Exactly what a snapshot needs from a live session — no more, so that the
+ * model never has to import `Session` and its live fields.
+ */
+export type ClosedSource = Pick<ClosedEntry, 'id' | 'cwd' | 'project' | 'branch' | 'title' | 'origin'>;
+
 function cap(entries: readonly ClosedEntry[]): ClosedEntry[] {
   const byId = new Map<string, ClosedEntry>();
   for (const e of entries) {

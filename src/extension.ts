@@ -3,7 +3,9 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import { groupsFile, kohVibeHome, legacyHome, settingsFile, spoolDirs } from './paths';
+import { closedFile, groupsFile, kohVibeHome, legacyHome, settingsFile, spoolDirs } from './paths';
+import { rememberClosed } from './closed/store';
+import { toClosedEntry } from './closed/model';
 import { readSettings, seedSettings, writeSettings } from './settings/store';
 import { defaultSettings, type AppSettings } from './settings/model';
 import { migrateLegacyHome } from './store/migrate';
@@ -45,6 +47,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const dirs = spoolDirs(home);
   const groupsPath = groupsFile(home);
   const settingsPath = settingsFile(home);
+  const closedPath = closedFile(home);
   await ensureDirs(dirs);
   if (migrated === 'migrated') {
     void vscode.window.showInformationMessage(
@@ -318,6 +321,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         vscode.l10n.t('Koh-Vibe: reading the events failed — it will be retried.'),
       );
     },
+    Date.now,
+    // The closed-conversation history. Errors are NOT swallowed here: `drain`
+    // relies on the rejection to leave the event in place and retry it.
+    (s) => rememberClosed(closedPath, toClosedEntry(s, Date.now())).then(() => undefined),
   );
   watcher.start();
   broker.start();

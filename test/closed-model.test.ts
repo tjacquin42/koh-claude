@@ -5,6 +5,7 @@ import {
   parseClosed,
   remember,
   serializeClosed,
+  toClosedEntry,
   type ClosedEntry,
 } from '../src/closed/model';
 
@@ -71,5 +72,22 @@ describe('parseClosed', () => {
   it('carries unknown top-level keys through a round trip', () => {
     const raw = JSON.stringify({ closed: [], somethingNewer: { a: 1 } });
     expect(JSON.parse(serializeClosed(parseClosed(raw)))).toMatchObject({ somethingNewer: { a: 1 } });
+  });
+});
+
+describe('toClosedEntry', () => {
+  it('keeps what a row displays and stamps the close time', () => {
+    expect(toClosedEntry({ id: 'a', cwd: '/Users/dev/projet', project: 'projet', origin: 'terminal' }, 42)).toEqual({
+      id: 'a',
+      cwd: '/Users/dev/projet',
+      project: 'projet',
+      origin: 'terminal',
+      closedAt: 42,
+    });
+  });
+
+  it('omits an absent branch and title instead of writing undefined keys', () => {
+    const entry = toClosedEntry({ id: 'a', cwd: '/Users/dev/projet', project: 'projet', origin: 'vscode' }, 1);
+    expect(Object.keys(entry).sort()).toEqual(['closedAt', 'cwd', 'id', 'origin', 'project']);
   });
 });
