@@ -103,13 +103,19 @@ export class FocusBroker {
       // never needs another window — there is nothing left to do here.
       return;
     }
+    if (plan.kind === 'explain') {
+      // No window can reopen this — the blocker is the entry's ORIGIN (e.g.
+      // sdk, unknown), not which one claims the folder. `reopenPlan` would
+      // still return `explain` from any window, so travelling to another one
+      // — writing a request file, arming the "no window has it open" fallback
+      // — would only move the same refusal somewhere the user is not looking.
+      void vscode.window.showInformationMessage(plan.message);
+      return;
+    }
     if (claims(this.folders(), entry.cwd)) {
-      // `focusSession` handles both remaining kinds: it runs the command for
-      // `command`, and shows the explanation for `explain` (an origin other
-      // than vscode/desktop/terminal — e.g. sdk, or unknown — which reopenPlan
-      // never turns into a guessed command). Going through it here, instead of
-      // calling `executeCommand` directly, is also what gives this local path
-      // the same one-time missing-command warning as the remote one below.
+      // Only `command` reaches here now. Going through `focusSession` rather
+      // than calling `executeCommand` directly gives this local path the same
+      // one-time missing-command warning as the remote one below.
       await this.focusSession(plan);
       return;
     }
