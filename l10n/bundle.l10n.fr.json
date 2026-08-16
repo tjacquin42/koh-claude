@@ -26,6 +26,7 @@
   "Koh-Vibe: a transcript could not be read — this session is shown without its counters.": "Koh-Vibe : lecture d'un transcript impossible — cette session s'affiche sans ses compteurs.",
   "Koh-Vibe: installing sounds…": "Koh-Vibe : installation des sons…",
   "Koh-Vibe: no sound found on this machine.": "Koh-Vibe : aucun son trouvé sur cette machine.",
+  "Koh-Vibe: no window has {0} open — open it, then reopen the conversation.": "Koh-Vibe : aucune fenêtre n'a {0} ouvert — ouvrez-le, puis rouvrez la conversation.",
   "Koh-Vibe: reading the events failed — it will be retried.": "Koh-Vibe : la lecture des événements a échoué — nouvelle tentative automatique.",
   "Koh-Vibe: rendering the dashboard failed — it will be retried.": "Koh-Vibe : le rendu du tableau de bord a échoué — nouvelle tentative automatique.",
   "Koh-Vibe: the extension was renamed. Your folders and sessions were carried over; run \"Install hooks\" again so that Claude Code points at the new bridge.": "Koh-Vibe : l'extension a changé de nom. Vos dossiers et vos sessions ont été repris ; relancez « Installer les hooks » pour que Claude Code pointe vers le nouveau pont.",

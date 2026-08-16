@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,6 +8,7 @@ import { spoolDirs, type SpoolDirs } from '../src/paths';
 import { ensureDirs } from '../src/spool/persist';
 import { FocusBroker } from '../src/focus/broker';
 import type { Session } from '../src/events/types';
+import type { ClosedEntry } from '../src/closed/model';
 
 const session = (over: Partial<Session> = {}): Session => ({
   id: 's1',
@@ -228,5 +229,68 @@ describe('FocusBroker — consommation des requêtes (I3)', () => {
     await internal.consume();
 
     expect(executeCommand).not.toHaveBeenCalled();
+  });
+});
+
+describe('requestReopen', () => {
+  const entry = (over: Partial<ClosedEntry> = {}): ClosedEntry => ({
+    id: 's1',
+    cwd: '/Users/dev/projet',
+    project: 'projet',
+    origin: 'vscode',
+    closedAt: 0,
+    ...over,
+  });
+
+  it('reopens straight away when this window claims the folder', async () => {
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
+    const run = vi.spyOn(vscode.commands, 'executeCommand').mockResolvedValue(undefined);
+    await makeBroker().requestReopen(entry());
+    expect(run).toHaveBeenCalledWith('claude-vscode.editor.open', 's1');
+    expect(await readdir(dirs.requests)).toEqual([]);
+  });
+
+  it('writes a request when another window holds the folder', async () => {
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/autre' } }]);
+    await makeBroker().requestReopen(entry());
+    expect(await readdir(dirs.requests)).toEqual(['reopen-s1.json']);
+  });
+
+  it('opens a terminal conversation without ever writing a request', async () => {
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/autre' } }]);
+    await makeBroker().requestReopen(entry({ origin: 'terminal' }));
+    expect(await readdir(dirs.requests)).toEqual([]);
+  });
+
+  it('consumes a reopen request written for a folder it holds', async () => {
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
+    const run = vi.spyOn(vscode.commands, 'executeCommand').mockResolvedValue(undefined);
+    await writeFile(
+      join(dirs.requests, 'reopen-s9.json'),
+      JSON.stringify({ sessionId: 's9', cwd: '/Users/dev/projet', label: 'projet', origin: 'vscode', at: Date.now() }),
+      'utf8',
+    );
+    const broker = makeBroker();
+    broker.start();
+    await vi.waitFor(async () => {
+      expect(run).toHaveBeenCalledWith('claude-vscode.editor.open', 's9');
+    });
+    expect(await readdir(dirs.requests)).toEqual([]);
+  });
+
+  it('ignores a reopen request that carries a terminal origin', async () => {
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
+    const terminal = vi.spyOn(vscode.window, 'createTerminal');
+    await writeFile(
+      join(dirs.requests, 'reopen-s9.json'),
+      JSON.stringify({ sessionId: 's9', cwd: '/Users/dev/projet', label: 'projet', origin: 'terminal', at: Date.now() }),
+      'utf8',
+    );
+    const broker = makeBroker();
+    broker.start();
+    await vi.waitFor(async () => {
+      expect(await readdir(dirs.requests)).toEqual([]);
+    });
+    expect(terminal).not.toHaveBeenCalled();
   });
 });
