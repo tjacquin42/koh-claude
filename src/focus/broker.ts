@@ -22,7 +22,13 @@ export class FocusBroker {
   private watcher: FSWatcher | undefined;
   private timer: NodeJS.Timeout | undefined;
   private readonly guard = new ReentrantGuard(GUARD_TIMEOUT_MS);
-  private warnedMissingCommand = false;
+  // Two flags, not one: a warning already shown for a focus click must not
+  // silence the one a reopen click deserves later, and vice versa — a user
+  // who dismissed the focus warning would otherwise get nothing at all for
+  // every reopen click that follows, on a section whose only gesture IS
+  // reopening.
+  private warnedMissingFocusCommand = false;
+  private warnedMissingReopenCommand = false;
   private consumeFailureWarned = false;
   private readonly fallbacks = new Map<string, NodeJS.Timeout>();
   // `process.pid` est constant sur toute la durée de vie du process de
@@ -41,7 +47,7 @@ export class FocusBroker {
   /** Demande le focus d'une session, où qu'elle vive. */
   async request(s: Session): Promise<void> {
     if (claims(this.folders(), s.cwd)) {
-      await this.focusSession(focusPlanFor(s));
+      await this.focusSession(focusPlanFor(s), 'focus');
       return;
     }
     const seq = (this.requestSeq += 1);
@@ -116,7 +122,7 @@ export class FocusBroker {
       // Only `command` reaches here now. Going through `focusSession` rather
       // than calling `executeCommand` directly gives this local path the same
       // one-time missing-command warning as the remote one below.
-      await this.focusSession(plan);
+      await this.focusSession(plan, 'reopen');
       return;
     }
     const seq = (this.requestSeq += 1);
@@ -152,7 +158,7 @@ export class FocusBroker {
     this.fallbacks.set(name, timer);
   }
 
-  private async focusSession(plan: FocusPlan): Promise<void> {
+  private async focusSession(plan: FocusPlan, gesture: 'focus' | 'reopen'): Promise<void> {
     if (plan.kind === 'explain') {
       void vscode.window.showInformationMessage(plan.message);
       return;
@@ -161,11 +167,16 @@ export class FocusBroker {
       await vscode.commands.executeCommand(plan.command, ...plan.args);
     } catch {
       // Un avertissement par session d'extension suffit : répété à chaque
-      // clic, il devient du bruit qu'on apprend à ignorer.
-      if (this.warnedMissingCommand) return;
-      this.warnedMissingCommand = true;
+      // clic, il devient du bruit qu'on apprend à ignorer. Un par geste, pas
+      // un seul pour les deux — voir le commentaire sur les deux champs.
+      const alreadyWarned = gesture === 'focus' ? this.warnedMissingFocusCommand : this.warnedMissingReopenCommand;
+      if (alreadyWarned) return;
+      if (gesture === 'focus') this.warnedMissingFocusCommand = true;
+      else this.warnedMissingReopenCommand = true;
       void vscode.window.showWarningMessage(
-        "Koh-Vibe : l'extension Claude Code n'expose pas de commande de focus dans cette version.",
+        vscode.l10n.t(
+          'Koh-Vibe: the Claude Code extension does not expose a command to open a conversation in this version.',
+        ),
       );
     }
   }
@@ -201,8 +212,8 @@ export class FocusBroker {
     return this.guard.run(
       () => this.consume(),
       () => {
-        // Un avertissement par cause suffit : même précédent que
-        // `warnedMissingCommand` ci-dessus.
+        // Un avertissement par cause suffit : même précédent que les drapeaux
+        // `warnedMissingFocusCommand`/`warnedMissingReopenCommand` ci-dessus.
         if (this.consumeFailureWarned) return;
         this.consumeFailureWarned = true;
         void vscode.window.showWarningMessage(
@@ -240,15 +251,14 @@ export class FocusBroker {
         const label = typeof rawLabel === 'string' && rawLabel.length > 0 ? rawLabel : 'session';
         const sessionId = (parsed as { sessionId?: unknown }).sessionId;
         if (typeof sessionId !== 'string' || sessionId.length === 0) continue;
-        // Cette fenêtre n'a que ce que la requête porte, pas l'objet Session :
-        // le plan se reconstitue via `focusPlan`/`reopenPlan`, la même règle
-        // que le chemin local, jamais une copie qui pourrait diverger. `cwd`
-        // est déjà prouvé `string` plus haut dans la boucle — sinon la requête
-        // aurait été ignorée avant d'arriver ici.
+        // This window only has what the request carries, not the Session
+        // object: the plan is rebuilt via `focusPlan`/`reopenPlan`, the same
+        // rule as the local path, never a copy that could drift. `cwd` is
+        // already proven to be a `string` earlier in the loop — otherwise the
+        // request would have been ignored before reaching here.
         const origin = (parsed as { origin?: unknown }).origin;
-        const plan = name.startsWith('reopen-')
-          ? reopenPlan(origin, sessionId, cwd, label)
-          : focusPlan(sessionId, origin, label);
+        const isReopen = name.startsWith('reopen-');
+        const plan = isReopen ? reopenPlan(origin, sessionId, cwd, label) : focusPlan(sessionId, origin, label);
         if (plan.kind === 'terminal') {
           // A reopen request should never carry a terminal origin: that case
           // is handled locally, without going through a file. Honouring this
@@ -257,17 +267,21 @@ export class FocusBroker {
           continue;
         }
         // Une seule annonce, jamais deux qui se contrediraient : « demandée »
-        // devant une commande qui va effectivement ouvrir quelque chose,
-        // l'explication de `focusSession` sinon.
+        // (ou « réouverte ») devant une commande qui va effectivement ouvrir
+        // quelque chose, l'explication de `focusSession` sinon.
         //
         // `void`, jamais `await` : ce thenable ne se règle qu'à la fermeture
         // du toast (clic ou disparition), parfois des secondes plus tard. Le
         // focus est le geste central du clic (spec §6) ; le message n'est
         // qu'une information, il ne doit jamais le retarder.
         if (plan.kind === 'command') {
-          void vscode.window.showInformationMessage(`Koh-Vibe : session « ${label} » demandée`);
+          void vscode.window.showInformationMessage(
+            isReopen
+              ? vscode.l10n.t('Koh-Vibe: reopening « {0} »', label)
+              : vscode.l10n.t('Koh-Vibe: « {0} » requested', label),
+          );
         }
-        await this.focusSession(plan);
+        await this.focusSession(plan, isReopen ? 'reopen' : 'focus');
       } catch {
         continue;
       }

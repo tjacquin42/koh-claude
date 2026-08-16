@@ -256,7 +256,7 @@ describe('requestReopen', () => {
     expect(await readdir(dirs.requests)).toEqual(['reopen-s1.json']);
   });
 
-  it('opens a terminal conversation without ever writing a request', async () => {
+  it('does nothing for a terminal-origin entry, and never writes a request — the caller opens the terminal locally', async () => {
     setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/autre' } }]);
     await makeBroker().requestReopen(entry({ origin: 'terminal' }));
     expect(await readdir(dirs.requests)).toEqual([]);
@@ -320,5 +320,23 @@ describe('requestReopen', () => {
     const warn = vi.spyOn(vscode.window, 'showWarningMessage').mockResolvedValue(undefined);
     await expect(makeBroker().requestReopen(entry())).resolves.toBeUndefined();
     expect(warn).toHaveBeenCalled();
+  });
+
+  it('does not let a warning already shown for focus suppress the one reopen deserves — the flags are separate', async () => {
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
+    vi.spyOn(vscode.commands, 'executeCommand').mockRejectedValue(new Error('no such command'));
+    const warn = vi.spyOn(vscode.window, 'showWarningMessage').mockResolvedValue(undefined);
+    const broker = makeBroker();
+
+    // Two focus clicks: the first warns, the second stays silent — same cause,
+    // already told.
+    await broker.request(session());
+    await broker.request(session());
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    // A reopen click is a DIFFERENT gesture: it must still warn once, on its
+    // own flag, rather than inheriting the focus one's silence.
+    await broker.requestReopen(entry());
+    expect(warn).toHaveBeenCalledTimes(2);
   });
 });
