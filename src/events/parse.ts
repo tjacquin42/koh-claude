@@ -49,8 +49,12 @@ const SAFE_SESSION_ID = /^[A-Za-z0-9._-]+$/;
  * comme composant de chemin produit un `ENOENT` à l'écriture — une donnée mal
  * formée ne doit jamais faire lever une écriture en aval, elle doit être
  * refusée ici, à la frontière.
+ *
+ * Exportée : `closed/model.ts` applique la MÊME règle aux entrées relues de
+ * `closed.json`, et un identifiant relu de ce fichier finit dans une ligne de
+ * commande (`claude --resume <id>`). Une seule règle, un seul endroit.
  */
-function isValidSessionId(id: string): boolean {
+export function isValidSessionId(id: string): boolean {
   return id !== '.' && id !== '..' && SAFE_SESSION_ID.test(id);
 }
 
