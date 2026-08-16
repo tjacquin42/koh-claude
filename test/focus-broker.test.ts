@@ -293,4 +293,22 @@ describe('requestReopen', () => {
     });
     expect(terminal).not.toHaveBeenCalled();
   });
+
+  it('explains rather than staying silent for an origin reopenPlan cannot turn into a command, even when this window holds the folder', async () => {
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
+    const info = vi.spyOn(vscode.window, 'showInformationMessage').mockResolvedValue(undefined);
+    const run = vi.spyOn(vscode.commands, 'executeCommand').mockResolvedValue(undefined);
+    await makeBroker().requestReopen(entry({ origin: 'sdk' }));
+    expect(info).toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+    expect(await readdir(dirs.requests)).toEqual([]);
+  });
+
+  it('warns instead of leaving a rejection unhandled when the editor command is missing on the local path', async () => {
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
+    vi.spyOn(vscode.commands, 'executeCommand').mockRejectedValue(new Error('no such command'));
+    const warn = vi.spyOn(vscode.window, 'showWarningMessage').mockResolvedValue(undefined);
+    await expect(makeBroker().requestReopen(entry())).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalled();
+  });
 });

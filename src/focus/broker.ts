@@ -97,9 +97,20 @@ export class FocusBroker {
    */
   async requestReopen(entry: ClosedEntry): Promise<void> {
     const plan = reopenPlan(entry.origin, entry.id, entry.cwd, sessionLabel(entry));
-    if (plan.kind !== 'command') return;
+    if (plan.kind === 'terminal') {
+      // The caller opens the terminal locally, before requestReopen is even
+      // called: createTerminal takes the folder explicitly, so this branch
+      // never needs another window — there is nothing left to do here.
+      return;
+    }
     if (claims(this.folders(), entry.cwd)) {
-      await vscode.commands.executeCommand(plan.command, ...plan.args);
+      // `focusSession` handles both remaining kinds: it runs the command for
+      // `command`, and shows the explanation for `explain` (an origin other
+      // than vscode/desktop/terminal — e.g. sdk, or unknown — which reopenPlan
+      // never turns into a guessed command). Going through it here, instead of
+      // calling `executeCommand` directly, is also what gives this local path
+      // the same one-time missing-command warning as the remote one below.
+      await this.focusSession(plan);
       return;
     }
     const seq = (this.requestSeq += 1);
