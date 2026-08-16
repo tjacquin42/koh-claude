@@ -32,6 +32,7 @@
   "Koh-Vibe: the library is already installed ({0} sounds).": "Koh-Vibe : la bibliothèque est déjà installée ({0} sons).",
   "Koh-Vibe: the library is not installed.": "Koh-Vibe : la bibliothèque n'est pas installée.",
   "Koh-Vibe: this conversation could not be removed.": "Koh-Vibe : cette conversation n'a pas pu être retirée.",
+  "Koh-Vibe: « {0} » ran outside the editor and the terminal{1} — nothing to reopen here.": "Koh-Vibe : « {0} » tournait hors de l'éditeur et du terminal{1} — rien à rouvrir ici.",
   "Koh-Vibe: usage unavailable — Anthropic unreachable, or keychain access denied.": "Koh-Vibe : consommation indisponible — Anthropic injoignable, ou accès au trousseau refusé.",
   "Koh-Vibe: {0} sounds installed.": "Koh-Vibe : {0} sons installés.",
   "Koh-Vibe: {0} sounds removed.": "Koh-Vibe : {0} sons retirés.",
