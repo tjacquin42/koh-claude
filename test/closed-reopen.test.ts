@@ -101,9 +101,13 @@ describe('reopenClosedSession', () => {
     expect(createTerminal).not.toHaveBeenCalled();
   });
 
-  it('does not let a rejection from the injected requestReopen escape', async () => {
+  it('does not let a rejection from the injected requestReopen escape, and tells the user rather than staying silent', async () => {
     const requestReopen = vi.fn().mockRejectedValue(new Error('boom'));
+    const error = vi.spyOn(vscode.window, 'showErrorMessage').mockResolvedValue(undefined);
 
     await expect(reopenClosedSession(entry({ origin: 'vscode' }), requestReopen)).resolves.toBeUndefined();
+
+    // Otherwise the row's only gesture does nothing and says nothing (Important 6).
+    expect(error).toHaveBeenCalled();
   });
 });

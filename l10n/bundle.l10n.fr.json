@@ -24,6 +24,7 @@
   "Koh-Vibe — {0} session": "Koh-Vibe — {0} session",
   "Koh-Vibe — {0} sessions": "Koh-Vibe — {0} sessions",
   "Koh-Vibe: a transcript could not be read — this session is shown without its counters.": "Koh-Vibe : lecture d'un transcript impossible — cette session s'affiche sans ses compteurs.",
+  "Koh-Vibe: could not reopen « {0} ».": "Koh-Vibe : impossible de rouvrir « {0} ».",
   "Koh-Vibe: installing sounds…": "Koh-Vibe : installation des sons…",
   "Koh-Vibe: no sound found on this machine.": "Koh-Vibe : aucun son trouvé sur cette machine.",
   "Koh-Vibe: no window has {0} open — open it, then reopen the conversation.": "Koh-Vibe : aucune fenêtre n'a {0} ouvert — ouvrez-le, puis rouvrez la conversation.",

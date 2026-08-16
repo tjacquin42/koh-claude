@@ -124,6 +124,7 @@ export interface StubTerminal {
 export const window = {
   showInformationMessage: async (..._args: unknown[]): Promise<string | undefined> => undefined,
   showWarningMessage: async (..._args: unknown[]): Promise<string | undefined> => undefined,
+  showErrorMessage: async (..._args: unknown[]): Promise<string | undefined> => undefined,
   createTreeView: (..._args: unknown[]): never => {
     throw new Error('vscode.window.createTreeView non bouchonné');
   },

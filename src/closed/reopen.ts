@@ -74,6 +74,13 @@ export async function reopenClosedSession(
     return;
   }
   // The tab can only come back in a window that holds the project: the
-  // broker takes care of that, locally or by request.
-  await requestReopen(entry).catch(() => undefined);
+  // broker takes care of that, locally or by request. The catch stays — an
+  // unhandled rejection would be worse — but a silently swallowed failure
+  // here (full disk, `requests/` removed at runtime) would leave the click
+  // doing and saying nothing, on a section whose only gesture IS this one.
+  await requestReopen(entry).catch(() => {
+    void vscode.window.showErrorMessage(
+      vscode.l10n.t('Koh-Vibe: could not reopen « {0} ».', sessionLabel(entry)),
+    );
+  });
 }
