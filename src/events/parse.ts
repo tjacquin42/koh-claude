@@ -50,9 +50,9 @@ const SAFE_SESSION_ID = /^[A-Za-z0-9._-]+$/;
  * formée ne doit jamais faire lever une écriture en aval, elle doit être
  * refusée ici, à la frontière.
  *
- * Exportée : `closed/model.ts` applique la MÊME règle aux entrées relues de
- * `closed.json`, et un identifiant relu de ce fichier finit dans une ligne de
- * commande (`claude --resume <id>`). Une seule règle, un seul endroit.
+ * Exported: `closed/model.ts` applies the SAME rule to the entries it reads
+ * back from `closed.json`, and an id read from that file ends up on a command
+ * line (`claude --resume <id>`). One rule, one place.
  */
 export function isValidSessionId(id: string): boolean {
   return id !== '.' && id !== '..' && SAFE_SESSION_ID.test(id);
