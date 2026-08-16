@@ -1,5 +1,6 @@
 import { basename } from 'node:path';
 import * as vscode from 'vscode';
+import type { ClosedEntry } from '../closed/model';
 import type { Session, Status } from '../events/types';
 
 /**
@@ -59,7 +60,7 @@ export function formatTokens(n: number): string {
  * seconds of a session, before Claude sets it), falling back to project · branch
  * is the only thing left saying where the session works.
  */
-export function sessionLabel(s: Session): string {
+export function sessionLabel(s: Pick<Session, 'title' | 'branch' | 'project'>): string {
   if (s.title !== undefined) return s.title;
   return s.branch === undefined ? s.project : `${s.project} · ${s.branch}`;
 }
@@ -101,4 +102,26 @@ export function sessionTooltip(s: Session, now: number): string {
   }
   lines.push(s.cwd);
   return lines.join('\n');
+}
+
+/**
+ * Where a closed conversation worked, and how long ago it ended.
+ *
+ * Coarse age, like the live rows: the tree compares what it renders to decide
+ * whether to redraw, and a label that moves every second rebuilds the view
+ * constantly. The precise age stays in the tooltip.
+ */
+export function closedDescription(e: Pick<ClosedEntry, 'project' | 'branch' | 'closedAt'>, now: number): string {
+  const where = e.branch === undefined ? e.project : `${e.project} · ${e.branch}`;
+  return `${where} · ${vscode.l10n.t('closed {0}', formatAgeCoarse(now - e.closedAt))}`;
+}
+
+export function closedTooltip(e: ClosedEntry, now: number): string {
+  return [
+    `${e.project}${e.branch === undefined ? '' : ` / ${e.branch}`}`,
+    vscode.l10n.t('closed {0} ago', formatAge(now - e.closedAt)),
+    vscode.l10n.t('origin: {0}', e.origin),
+    vscode.l10n.t('Click to reopen'),
+    e.cwd,
+  ].join('\n');
 }
