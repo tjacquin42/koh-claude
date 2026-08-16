@@ -31,8 +31,12 @@ export interface ClosedState {
   closed: readonly ClosedEntry[];
   /**
    * Top-level keys this version does not know, kept so that a file written by
-   * a newer version survives a round trip through an older one. Same rule as
-   * `GroupsState.unknown`.
+   * a newer version survives a round trip through an older one — but only at
+   * this level. Each entry in `closed` is rebuilt field by field from seven
+   * known keys (see `parseClosed`): an unknown key added to one entry is
+   * silently dropped, and an entry whose shape changed enough to fail
+   * validation is rejected outright, not carried through. Same rule, and the
+   * same limits, as `GroupsState.unknown`.
    */
   unknown: Readonly<Record<string, unknown>>;
 }
