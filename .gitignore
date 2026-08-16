@@ -7,3 +7,4 @@ coverage/
 .DS_Store
 .superpowers/
 build-info.json
+.worktrees/
