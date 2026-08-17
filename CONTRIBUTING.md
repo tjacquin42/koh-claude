@@ -35,6 +35,16 @@ pnpm package     # proves the extension still packages
 CI runs those three on macOS, which is the only platform this extension supports. It reads no
 secret, so it runs on pull requests from forks like any other.
 
+To try your build for real, from the integrated terminal of the editor you want it in:
+
+```bash
+scripts/install-local.sh    # then: Developer: Reload Window
+```
+
+It packages, then installs into **that** editor rather than into whichever one owns `code` on
+your PATH — Cursor ships a binary called `code` of its own, and some editors put none there at
+all. It refuses instead of guessing when the terminal belongs to no editor.
+
 ## What the review looks at
 
 **Tests come with the change, not after it.** A behaviour without a test is a behaviour nobody
