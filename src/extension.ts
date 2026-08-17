@@ -307,6 +307,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     );
   }
 
+  /**
+   * The closed-conversation history. `s` is read straight off disk: `title`,
+   * and `branch` for anything but a worktree path, are never written to
+   * `sessions/<id>.json` — `withTokens` (transcript/tokens.ts) only ever
+   * attaches them to the in-memory Map that `render()` holds here, in
+   * `transcripts`. Without this lookup, every archived conversation would
+   * carry neither, and five closed conversations of the same project would all
+   * show the bare project name.
+   *
+   * Shared by the drain (a natural `SessionEnd`) and, from the next task on, by
+   * the trash: two divergent archiving paths would silently lose the title on
+   * one of them.
+   */
+  const archive = (s: Session): Promise<void> => {
+    const stats = transcripts.get(s.id);
+    const source = { ...s, title: s.title ?? stats?.title, branch: s.branch ?? stats?.branch };
+    return rememberClosed(closedPath, toClosedEntry(source, Date.now())).then(() => undefined);
+  };
+
+  /**
+   * Removes a conversation from the dashboard: its state file, then its place
+   * in the folder layout — leaving the latter would resurrect a ghost ranking
+   * if the id ever came back, and would grow the shared file without end.
+   */
+  const forget = async (id: string): Promise<void> => {
+    await removeSession(dirs, id);
+    await pruneAssignmentsAfterPurge(dirs, groupsPath, [id]).catch(() => undefined);
+    await render();
+  };
+
   const watcher = new SpoolWatcher(
     dirs,
     (res) => {
@@ -330,19 +360,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     Date.now,
     // The closed-conversation history. Errors are NOT swallowed here: `drain`
     // relies on the rejection to leave the event in place and retry it.
-    //
-    // `s` is `current`, read straight off disk by `drain`: `title`, and
-    // `branch` for anything but a worktree path, are never written to
-    // `sessions/<id>.json` — `withTokens` (transcript/tokens.ts) only ever
-    // attaches them to the in-memory Map that `render()` holds here, in
-    // `transcripts`. Without this lookup, every archived conversation would
-    // carry neither, and five closed conversations of the same project would
-    // all show the bare project name.
-    (s) => {
-      const stats = transcripts.get(s.id);
-      const source = { ...s, title: s.title ?? stats?.title, branch: s.branch ?? stats?.branch };
-      return rememberClosed(closedPath, toClosedEntry(source, Date.now())).then(() => undefined);
-    },
+    archive,
   );
   watcher.start();
   broker.start();
@@ -596,16 +614,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const id = sessionIdOfNode(node);
       if (id === undefined) return;
       try {
-        await removeSession(dirs, id);
+        await forget(id);
       } catch {
         void vscode.window.showErrorMessage(vscode.l10n.t('Koh-Vibe: this conversation could not be removed.'));
-        return;
       }
-      // Son rangement part avec elle : dossier, place choisie, sons propres.
-      // Le laisser ferait ressurgir un classement fantôme si l'identifiant
-      // revenait, et gonflerait le fichier partagé sans fin.
-      await pruneAssignmentsAfterPurge(dirs, groupsPath, [id]).catch(() => undefined);
-      await render();
     }),
     vscode.commands.registerCommand('kohVibe.colorGroup', async (node: unknown) => {
       const id = groupIdOfNode(node);
