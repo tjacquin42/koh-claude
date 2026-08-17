@@ -20,7 +20,7 @@ import { SpoolWatcher } from './spool/watcher';
 import { pruneAssignmentsAfterPurge } from './groups/purge';
 import {
   applyDrop, colorGroupCommand, createGroupCommand, deleteGroupCommand,
-  renameGroupCommand, runGroupAction, soundGroupCommand, soundSessionCommand,
+  renameGroupCommand, reorderGroupsCommand, runGroupAction, soundGroupCommand, soundSessionCommand,
 } from './groups/commands';
 import { colorChoice, GROUP_COLORS, NO_COLOR_LABEL } from './ui/colors';
 import { readGroups } from './groups/store';
@@ -84,6 +84,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     order: readonly string[],
   ): Promise<void> {
     await applyDrop(groupsPath, sessionIds, groupId, order);
+    await render();
+  }
+
+  async function onGroupsDropped(groupIds: readonly string[], beforeId: string | undefined): Promise<void> {
+    await reorderGroupsCommand(groupsPath, groupIds, beforeId);
     await render();
   }
 
@@ -194,7 +199,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return { sound: chosen === NONE_LABEL ? NO_SOUND : chosen };
   }
 
-  const tree = new SessionsTree(checkHooksInstalled, onSessionsDropped, context.extensionPath);
+  const tree = new SessionsTree(checkHooksInstalled, onSessionsDropped, onGroupsDropped, context.extensionPath);
   const footer = new FooterTree();
   const closedTree = new ClosedTree();
   const usageView = new UsageView(() => void vscode.commands.executeCommand('kohVibe.refreshUsage'));

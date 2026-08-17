@@ -1,8 +1,5 @@
 import type { ChimeEvent } from '../sound/model';
-import {
-  assign, createGroup, deleteGroup, renameGroup, setGroupColor, setGroupSound,
-  setSessionOrder, setSessionSound, unassign,
-} from './model';
+import { assign, createGroup, deleteGroup, renameGroup, reorderGroups, setGroupColor, setGroupSound, setSessionOrder, setSessionSound, unassign } from './model';
 import type { GroupsState } from './model';
 import { updateGroups } from './store';
 
@@ -108,6 +105,22 @@ export async function applyDrop(
     // encore laisserait le fichier se contredire lui-même.
     return setSessionOrder(assigned, groupId, order);
   });
+}
+
+/**
+ * Moves folders in front of another one — or to the end when `beforeId` is
+ * undefined.
+ *
+ * One call to `updateGroups` for the whole batch, like `applyDrop`: the moved
+ * folders must land in a single write, never one id at a time with another
+ * window free to interleave between two of them.
+ */
+export async function reorderGroupsCommand(
+  groupsFilePath: string,
+  groupIds: readonly string[],
+  beforeId: string | undefined,
+): Promise<GroupsState> {
+  return updateGroups(groupsFilePath, (s) => reorderGroups(s, groupIds, beforeId));
 }
 
 /**

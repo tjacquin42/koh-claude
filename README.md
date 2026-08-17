@@ -59,7 +59,8 @@ you already had are preserved: Koh-Vibe chains onto the end, it replaces nothing
 
 **Filing.** Create folders, drag sessions into them, give them a colour. The order inside a
 folder is set by hand and stays put: a session opened later lands at the end without
-disturbing what you placed.
+disturbing what you placed. The folders themselves are dragged the same way — drop one onto
+another to put it in front, or onto *Unfiled* to send it to the end.
 
 **Chimes.** One when a session starts waiting for you, another when it finishes. Three levels,
 most specific first: a conversation's sound beats its folder's, which beats the global

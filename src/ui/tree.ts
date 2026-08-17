@@ -135,13 +135,30 @@ function withSpacers(nodes: readonly TreeNode[]): TreeNode[] {
   return out;
 }
 
+/**
+ * The string ids carried by a transferred item. `value` is never cast: it
+ * travels as `unknown` and is only accepted once its shape has been checked,
+ * because what a drop hands us may come from another tree, or from the OS.
+ */
+function idsOf(item: vscode.DataTransferItem | undefined): string[] {
+  if (item === undefined) return [];
+  const value: unknown = item.value;
+  if (!Array.isArray(value)) return [];
+  return value.filter((id): id is string => typeof id === 'string');
+}
+
 export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.TreeDragAndDropController<TreeNode> {
   // Type MIME qui nous est propre : c'est lui qui distingue un dépôt venu de
   // cet arbre (dont on connaît le format du contenu) d'un dépôt venu
   // d'ailleurs (un autre arbre, l'OS) — voir handleDrop.
   private static readonly MIME = 'application/vnd.code.tree.kohvibe.sessions';
-  readonly dropMimeTypes = [SessionsTree.MIME];
-  readonly dragMimeTypes = [SessionsTree.MIME];
+  // Folders travel under a type of their own rather than sharing the sessions'
+  // with a tag inside. A mixed selection then simply carries both, and
+  // handleDrop picks the one that matches what it was dropped on — instead of
+  // having to arbitrate between two kinds inside one payload.
+  private static readonly GROUP_MIME = 'application/vnd.code.tree.kohvibe.groups';
+  readonly dropMimeTypes = [SessionsTree.MIME, SessionsTree.GROUP_MIME];
+  readonly dragMimeTypes = [SessionsTree.MIME, SessionsTree.GROUP_MIME];
 
   private readonly emitter = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this.emitter.event;
@@ -166,6 +183,13 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
       sessionIds: readonly string[],
       groupId: string | undefined,
       order: readonly string[],
+    ) => Promise<void>,
+    // Same contract as onDrop, for the folders themselves: the view says where
+    // they should go, the wiring writes it. `beforeId === undefined` means the
+    // end of the list.
+    private readonly onGroupsDropped: (
+      groupIds: readonly string[],
+      beforeId: string | undefined,
     ) => Promise<void>,
     // La racine du paquet installé, d'où sont lues les pastilles de statut.
     // Obligatoire, comme onDrop : une vue câblée sans elle afficherait des
@@ -367,6 +391,13 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
   handleDrag(source: readonly TreeNode[], data: vscode.DataTransfer): void {
     const ids = source.filter(isSessionNode).map((node) => node.session.id);
     if (ids.length > 0) data.set(SessionsTree.MIME, new vscode.DataTransferItem(ids));
+    // Named folders only: « Unfiled » has no id, so there is nothing to move
+    // and nowhere to record it — it stays last, where getChildren puts it.
+    const groupIds = source
+      .filter((node): node is Extract<TreeNode, { kind: 'group' }> => node.kind === 'group')
+      .map((node) => node.group?.id)
+      .filter((id): id is string => id !== undefined);
+    if (groupIds.length > 0) data.set(SessionsTree.GROUP_MIME, new vscode.DataTransferItem(groupIds));
   }
 
   // Le ciblage ne passe pas par contextValue : `target` est le nœud VSCode
@@ -380,11 +411,20 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
     // de la vue, un séparateur ou le nœud d'état vide ne changent rien.
     if (target === undefined) return;
     if (target.kind !== 'group' && target.kind !== 'session') return;
+    // Folders first: a drag that carries both kinds is resolved by what it was
+    // dropped ON, and a folder dropped onto a folder can only mean a move.
+    // Folders only claim the drop when it landed on a folder. Dropped on a
+    // session, the gesture names no position among the folders — and refusing
+    // the whole drop there would also swallow the sessions of a mixed drag,
+    // which do have a meaning on that target.
+    const groupIds = idsOf(data.get(SessionsTree.GROUP_MIME));
+    if (groupIds.length > 0 && target.kind === 'group') {
+      await this.onGroupsDropped(groupIds, target.group?.id);
+      return;
+    }
     const item = data.get(SessionsTree.MIME);
     if (item === undefined) return;
-    const ids: unknown = item.value;
-    if (!Array.isArray(ids)) return;
-    const sessionIds = ids.filter((id): id is string => typeof id === 'string');
+    const sessionIds = idsOf(item);
     if (sessionIds.length === 0) return;
 
     const groupId = target.kind === 'group' ? target.group?.id : this.groupOfSession(target.session.id);

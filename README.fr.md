@@ -65,7 +65,9 @@ rien. **Koh-Vibe: Désinstaller les hooks** défait exactement cela.
 
 **Ranger.** Créez des dossiers, glissez-y des sessions, donnez-leur une couleur. L'ordre à
 l'intérieur d'un dossier se fixe à la main et ne bouge plus : une session ouverte plus tard
-se pose à la fin sans bousculer ce qui a été placé.
+se pose à la fin sans bousculer ce qui a été placé. Les dossiers eux-mêmes se glissent de la
+même façon — déposez-en un sur un autre pour le placer devant, ou sur *Sans dossier* pour
+l'envoyer à la fin.
 
 **Sonner.** Un carillon quand une session se met à vous attendre, un autre quand elle vient
 de finir. Trois niveaux, du plus précis au plus général : le son d'une conversation l'emporte
