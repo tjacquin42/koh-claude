@@ -40,12 +40,14 @@ Pour essayer votre build pour de vrai, depuis le terminal intégré de l'éditeu
 voulez :
 
 ```bash
-scripts/install-local.sh    # puis : Developer: Reload Window
+sh install.sh    # puis : Developer: Reload Window
 ```
 
-Il empaquette, puis installe dans **cet** éditeur-là plutôt que dans celui qui détient `code`
-dans votre PATH — Cursor livre son propre binaire nommé `code`, et certains éditeurs n'en
-posent aucun. Quand le terminal n'appartient à aucun éditeur, il refuse au lieu de deviner.
+Il installe dans **cet** éditeur-là plutôt que dans celui qui détient `code` dans votre PATH —
+Cursor livre son propre binaire nommé `code`, et certains éditeurs n'en posent aucun — et quand
+le terminal n'appartient à aucun éditeur, il refuse au lieu de deviner. Il empaquette aussi sous
+un numéro de version jetable, pour que l'installation atterrisse dans un dossier neuf et qu'un
+rechargement la prenne toujours ; `package.json` n'est pas touché.
 
 ## Ce que la revue regarde
 
