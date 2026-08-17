@@ -15,7 +15,7 @@ import { chimeFor, statusesOf, type ChimeEvent } from './sound/model';
 import { availableSounds, clampVolume, NO_SOUND, playFile, playNamed } from './sound/player';
 import { EVENT_TITLE, FooterTree, type SoundSettings } from './ui/footer-tree';
 import { UsageView } from './ui/usage-view';
-import { ensureDirs, readSessions, removeSession } from './spool/persist';
+import { ensureDirs, readSession, readSessions, removeSession } from './spool/persist';
 import { SpoolWatcher } from './spool/watcher';
 import { pruneAssignmentsAfterPurge } from './groups/purge';
 import {
@@ -34,6 +34,8 @@ import { StatusSummary } from './ui/statusbar';
 import { readBuildStamp, versionLabel } from './ui/version';
 import { FocusBroker } from './focus/broker';
 import { acknowledgeClickedSession, acknowledgeVisibleSessions } from './focus/acknowledge';
+import { closeSessionHere } from './close/close';
+import { closeSessionTab, vscodeTabs } from './close/tabs';
 import { countKohEntries } from './hooks/installer';
 import type { Session } from './events/types';
 import { GUARD_TIMEOUT_MS, ReentrantGuard } from './lib/reentrant-guard';
@@ -194,7 +196,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const footer = new FooterTree();
   const usageView = new UsageView(() => void vscode.commands.executeCommand('kohVibe.refreshUsage'));
   const status = new StatusSummary();
-  const broker = new FocusBroker(dirs);
   const transcripts = new Map<string, TranscriptStats>();
 
   // Seul moyen offert par VSCode de colorer le TEXTE d'une ligne d'arbre. Sans
@@ -336,6 +337,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await pruneAssignmentsAfterPurge(dirs, groupsPath, [id]).catch(() => undefined);
     await render();
   };
+
+  const broker = new FocusBroker(dirs, {
+    closeHere: (id) =>
+      closeSessionHere(id, {
+        read: (i) => readSession(dirs, i),
+        closeTab: (i) => closeSessionTab(i, vscodeTabs()),
+        archive,
+        forget,
+      }),
+    forget,
+  });
 
   const watcher = new SpoolWatcher(
     dirs,
