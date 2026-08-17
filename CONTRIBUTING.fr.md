@@ -36,6 +36,19 @@ pnpm package     # prouve que l'extension s'empaquette encore
 La CI lance ces trois commandes sur macOS, seule plateforme que l'extension sait servir. Elle
 ne lit aucun secret : elle tourne donc sur les PR venues d'un fork comme sur les autres.
 
+Pour essayer votre build pour de vrai, depuis le terminal intégré de l'éditeur où vous la
+voulez :
+
+```bash
+sh install.sh    # puis : Developer: Reload Window
+```
+
+Il installe dans **cet** éditeur-là plutôt que dans celui qui détient `code` dans votre PATH —
+Cursor livre son propre binaire nommé `code`, et certains éditeurs n'en posent aucun — et quand
+le terminal n'appartient à aucun éditeur, il refuse au lieu de deviner. Il empaquette aussi sous
+un numéro de version jetable, pour que l'installation atterrisse dans un dossier neuf et qu'un
+rechargement la prenne toujours ; `package.json` n'est pas touché.
+
 ## Ce que la revue regarde
 
 **Les tests viennent avec le changement, pas après.** Un comportement sans test est un
