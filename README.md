@@ -18,8 +18,14 @@ and the hook bridges are zsh scripts.
   the ones working, then the ones that just finished.
 - **A status dot** per session — one glyph, five colours — next to the project, the branch and
   the tool currently running.
+- **Recently closed**, a view of its own holding the ten conversations that ended most
+  recently, so a session you just finished with is not gone the instant it disappears.
+- **Close a conversation** with the trash icon that appears when you hover a live row. It
+  closes its Claude Code tab, which ends the conversation and files it under *Recently
+  closed*. When no tab is found — a conversation running in a terminal, in the Claude desktop
+  app, or in a project no window has open — the row is simply removed from the list.
 - **Your usage** over five hours and seven days, with the time until it resets.
-- **One click** opens or resumes a session's window, wherever it lives.
+- **One click** opens or resumes a session's window, wherever it lives — a closed one included.
 
 ## Install
 
@@ -53,7 +59,8 @@ you already had are preserved: Koh-Vibe chains onto the end, it replaces nothing
 
 **Filing.** Create folders, drag sessions into them, give them a colour. The order inside a
 folder is set by hand and stays put: a session opened later lands at the end without
-disturbing what you placed.
+disturbing what you placed. The folders themselves are dragged the same way — drop one onto
+another to put it in front, or onto *Unfiled* to send it to the end.
 
 **Chimes.** One when a session starts waiting for you, another when it finishes. Three levels,
 most specific first: a conversation's sound beats its folder's, which beats the global
@@ -70,6 +77,11 @@ In the picker, the arrow keys play each sound; **→** replays the highlighted o
 **Removing.** Right-click a session → *Remove from the list*. Nothing is stopped: Claude Code
 runs in its own terminal, and a session still alive reappears on its next event.
 
+**Reopening.** A conversation that just ended does not vanish: it moves into *Recently
+closed*, below the live sessions, for as long as four more have not pushed it out. One click
+brings it back — in the editor tab it ran in, or a fresh terminal on its folder, whichever it
+came from.
+
 ## Where the data lives
 
 Everything sits under `~/.koh-vibe/`:
@@ -80,9 +92,10 @@ Everything sits under `~/.koh-vibe/`:
 | `events/` | the spool: one file per event, consumed then deleted |
 | `events/rejected/` | what could not be read, kept rather than dropped |
 | `sessions/` | the reduced state, one file per session |
-| `requests/` | focus requests, from one window to another |
+| `requests/` | focus, reopen and close requests, from one window to another |
 | `backups/` | copies of `settings.json` taken before each hook install |
 | `groups.json` | folders, their colours, the chosen order and the sounds |
+| `closed.json` | the ten most recently closed conversations |
 | `settings.json` | global sounds and volume |
 | `usage.json` | the last usage reading, cached |
 | `status.json` | the last status-line snapshot |

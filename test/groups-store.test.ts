@@ -3,7 +3,7 @@ import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { assign, createGroup, deleteGroup, emptyGroups, parseGroups, serializeGroups, sessionOrderOf, setGroupColor, setSessionOrder } from '../src/groups/model';
+import { assign, createGroup, deleteGroup, emptyGroups, parseGroups, reorderGroups, serializeGroups, sessionOrderOf, setGroupColor, setSessionOrder } from '../src/groups/model';
 import { readGroups, updateGroups } from '../src/groups/store';
 
 // `node:fs/promises` est un module natif, mocké entièrement en délégant à l'implémentation
@@ -293,5 +293,42 @@ describe('groups store', () => {
       updateGroups(file, (s) => createGroup(s, 'b', () => 'gb')),
     ]);
     expect((await readGroups(file)).groups).toHaveLength(2);
+  });
+
+  it('carries a reorder through the merge, which edits nothing but `order`', async () => {
+    // The regression this guards: `sameAttributes` decides which folders our
+    // edit is allowed to push onto the freshest state. While `order` was absent
+    // from it, a reorder compared equal to what came before, no folder counted
+    // as edited, and the whole gesture was dropped on write without a word.
+    await updateGroups(file, (s) => createGroup(createGroup(s, 'a', () => 'ga'), 'b', () => 'gb'));
+
+    await updateGroups(file, (s) => reorderGroups(s, ['gb'], 'ga'));
+
+    expect((await readGroups(file)).groups.map((g) => g.id)).toEqual(['gb', 'ga']);
+  });
+
+  it('keeps a reorder even when another window renamed a folder in between', async () => {
+    await updateGroups(file, (s) => createGroup(createGroup(s, 'a', () => 'ga'), 'b', () => 'gb'));
+
+    // The other window writes between our read and our rename, so the merge has
+    // to combine its rename with our reorder rather than choose between them.
+    let armed = true;
+    readFileOverride.current = (path) => {
+      if (!armed || !path.endsWith('groups.json')) return undefined;
+      armed = false;
+      const fresh = parseGroups(readFileSync(file, 'utf8'));
+      writeFileSync(
+        file,
+        serializeGroups({ ...fresh, groups: fresh.groups.map((g) => (g.id === 'ga' ? { ...g, name: 'renamed' } : g)) }),
+        'utf8',
+      );
+      return undefined;
+    };
+
+    await updateGroups(file, (s) => reorderGroups(s, ['gb'], 'ga'));
+
+    const after = await readGroups(file);
+    expect(after.groups.map((g) => g.id)).toEqual(['gb', 'ga']);
+    expect(after.groups.find((g) => g.id === 'ga')?.name).toBe('renamed');
   });
 });

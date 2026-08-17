@@ -170,6 +170,10 @@ async function readRaw(file: string): Promise<string | undefined> {
 function sameAttributes(a: Group, b: Group): boolean {
   return (
     a.name === b.name &&
+    // `order` is deliberately NOT here. It is positional, not an attribute:
+    // listing it would make every folder of a reorder count as edited, and
+    // `applyEdit` would then push OUR name over a rename another window had
+    // just made. Where the sequence goes is decided by `sequence()` below.
     a.color === b.color &&
     a.soundWaiting === b.soundWaiting &&
     a.soundDone === b.soundDone
@@ -210,7 +214,30 @@ function mergeGroups(latest: readonly Group[], before: readonly Group[], after: 
       return edit === undefined ? g : applyEdit(g, edit);
     });
   const merged = [...kept, ...added.filter((g) => !kept.some((k) => k.id === g.id))];
-  return merged.map((g, i) => ({ ...g, order: i }));
+  return sequence(merged, before, after).map((g, i) => ({ ...g, order: i }));
+}
+
+/**
+ * The order the merged folders end up in.
+ *
+ * Same three-way rule as every attribute: what our edit changed is ours, what
+ * it did not comes from the freshest state. Renaming a folder must not drag
+ * our own idea of the sequence over a reorder another window has just made —
+ * so the sequence only becomes ours when we actually moved something.
+ *
+ * Without this, `order` was renumbered straight from the position in `latest`,
+ * which made a reorder impossible to persist no matter what the caller did.
+ */
+function sequence(merged: readonly Group[], before: readonly Group[], after: readonly Group[]): Group[] {
+  const ours = after.map((g) => g.id);
+  const theirs = before.map((g) => g.id);
+  if (ours.length === theirs.length && ours.every((id, i) => id === theirs[i])) return [...merged];
+  const rank = new Map(ours.map((id, i) => [id, i] as const));
+  const at = (g: Group): number => rank.get(g.id) ?? Number.MAX_SAFE_INTEGER;
+  // Folders we never saw — created by another window while we were moving ours
+  // — go to the end rather than being interleaved at a position our sequence
+  // says nothing about.
+  return [...merged].sort((a, b) => at(a) - at(b));
 }
 
 /**

@@ -10,6 +10,9 @@ import type { Session } from '../src/events/types';
 // contrat public de la vue — un test qui l'importerait ne le vérifierait
 // plus.
 const MIME = 'application/vnd.code.tree.kohvibe.sessions';
+// The folders' own type, for the same reason: the exact value is part of the
+// view's public contract, so it is written out here rather than imported.
+const GROUP_MIME = 'application/vnd.code.tree.kohvibe.groups';
 
 // La racine du paquet, dont la vue tire ses pastilles de statut. Un chemin
 // fictif suffit ici : ce qui est vérifié, c'est la FORME de l'iconPath, pas le
@@ -40,15 +43,22 @@ const dataWith = (ids: unknown): DataTransfer => {
   return data;
 };
 
+const groupDataWith = (ids: unknown): DataTransfer => {
+  const data = new DataTransfer();
+  data.set(GROUP_MIME, new DataTransferItem(ids));
+  return data;
+};
+
 // onDrop est obligatoire au constructeur (un câblage oublié doit échouer à la
 // compilation, pas produire un glisser-déposer inerte à l'exécution) : ce
 // bouchon partagé sert aux tests qui ne portent pas sur son appel lui-même.
 const noopOnDrop = async (): Promise<void> => undefined;
+const noopOnGroupsDropped = async (): Promise<void> => undefined;
 
 describe('SessionsTree — handleDrop (la décision, pas le mécanisme VSCode)', () => {
   it('affecte une session déposée sur un dossier', async () => {
     const onDrop = vi.fn().mockResolvedValue(undefined);
-    const tree = new SessionsTree(() => Promise.resolve(true), onDrop, EXT);
+    const tree = new SessionsTree(() => Promise.resolve(true), onDrop, noopOnGroupsDropped, EXT);
 
     await tree.handleDrop(groupNode('g-perso', 'Perso'), dataWith(['s1']));
 
@@ -58,7 +68,7 @@ describe('SessionsTree — handleDrop (la décision, pas le mécanisme VSCode)',
 
   it('affecte plusieurs sessions déposées d un coup sur un dossier', async () => {
     const onDrop = vi.fn().mockResolvedValue(undefined);
-    const tree = new SessionsTree(() => Promise.resolve(true), onDrop, EXT);
+    const tree = new SessionsTree(() => Promise.resolve(true), onDrop, noopOnGroupsDropped, EXT);
 
     await tree.handleDrop(groupNode('g-taf', 'Taf'), dataWith(['s1', 's2', 's3']));
 
@@ -67,7 +77,7 @@ describe('SessionsTree — handleDrop (la décision, pas le mécanisme VSCode)',
 
   it('retire l affectation quand on dépose sur « Sans dossier »', async () => {
     const onDrop = vi.fn().mockResolvedValue(undefined);
-    const tree = new SessionsTree(() => Promise.resolve(true), onDrop, EXT);
+    const tree = new SessionsTree(() => Promise.resolve(true), onDrop, noopOnGroupsDropped, EXT);
 
     await tree.handleDrop(unfiledNode(), dataWith(['s1']));
 
@@ -76,7 +86,7 @@ describe('SessionsTree — handleDrop (la décision, pas le mécanisme VSCode)',
 
   it('ne change rien quand on dépose sur le vide de la vue (aucune cible)', async () => {
     const onDrop = vi.fn().mockResolvedValue(undefined);
-    const tree = new SessionsTree(() => Promise.resolve(true), onDrop, EXT);
+    const tree = new SessionsTree(() => Promise.resolve(true), onDrop, noopOnGroupsDropped, EXT);
 
     await tree.handleDrop(undefined, dataWith(['s1']));
 
@@ -85,7 +95,7 @@ describe('SessionsTree — handleDrop (la décision, pas le mécanisme VSCode)',
 
   it('ne change rien quand la donnée déposée ne porte pas notre type MIME', async () => {
     const onDrop = vi.fn().mockResolvedValue(undefined);
-    const tree = new SessionsTree(() => Promise.resolve(true), onDrop, EXT);
+    const tree = new SessionsTree(() => Promise.resolve(true), onDrop, noopOnGroupsDropped, EXT);
     const data = new DataTransfer();
     data.set('text/plain', new DataTransferItem('un texte quelconque'));
 
@@ -96,7 +106,7 @@ describe('SessionsTree — handleDrop (la décision, pas le mécanisme VSCode)',
 
   it('ne change rien quand la valeur transportée n est pas un tableau', async () => {
     const onDrop = vi.fn().mockResolvedValue(undefined);
-    const tree = new SessionsTree(() => Promise.resolve(true), onDrop, EXT);
+    const tree = new SessionsTree(() => Promise.resolve(true), onDrop, noopOnGroupsDropped, EXT);
 
     await tree.handleDrop(groupNode('g1', 'Dossier'), dataWith('s1'));
 
@@ -105,7 +115,7 @@ describe('SessionsTree — handleDrop (la décision, pas le mécanisme VSCode)',
 
   it('filtre les entrées non-chaînes plutôt que de les caster, et ignore ce qui ne reste plus', async () => {
     const onDrop = vi.fn().mockResolvedValue(undefined);
-    const tree = new SessionsTree(() => Promise.resolve(true), onDrop, EXT);
+    const tree = new SessionsTree(() => Promise.resolve(true), onDrop, noopOnGroupsDropped, EXT);
 
     await tree.handleDrop(groupNode('g1', 'Dossier'), dataWith(['s1', 42, null, 's2']));
 
@@ -114,7 +124,7 @@ describe('SessionsTree — handleDrop (la décision, pas le mécanisme VSCode)',
 
   it('ne change rien quand le tableau transporté ne contient aucune chaîne exploitable', async () => {
     const onDrop = vi.fn().mockResolvedValue(undefined);
-    const tree = new SessionsTree(() => Promise.resolve(true), onDrop, EXT);
+    const tree = new SessionsTree(() => Promise.resolve(true), onDrop, noopOnGroupsDropped, EXT);
 
     await tree.handleDrop(groupNode('g1', 'Dossier'), dataWith([42, null]));
 
@@ -127,7 +137,7 @@ describe('SessionsTree — handleDrop (la décision, pas le mécanisme VSCode)',
   // doit être celui de la session survolée, jamais celui du nœud déposé.
   it('dépose devant la session survolée, dans le dossier de CETTE session', async () => {
     const onDrop = vi.fn().mockResolvedValue(undefined);
-    const tree = new SessionsTree(() => Promise.resolve(true), onDrop, EXT);
+    const tree = new SessionsTree(() => Promise.resolve(true), onDrop, noopOnGroupsDropped, EXT);
     tree.setSessions(new Map([['s1', session('s1')], ['s2', session('s2')], ['s3', session('s3')]]));
     tree.setGroups({
       groups: [{ id: 'g1', name: 'Dossier', order: 0 }],
@@ -146,7 +156,7 @@ describe('SessionsTree — handleDrop (la décision, pas le mécanisme VSCode)',
 
   it('déposer une session sur elle-même ne la fait pas disparaître', async () => {
     const onDrop = vi.fn().mockResolvedValue(undefined);
-    const tree = new SessionsTree(() => Promise.resolve(true), onDrop, EXT);
+    const tree = new SessionsTree(() => Promise.resolve(true), onDrop, noopOnGroupsDropped, EXT);
     tree.setSessions(new Map([['s1', session('s1')], ['s2', session('s2')]]));
     tree.setGroups({
       groups: [{ id: 'g1', name: 'Dossier', order: 0 }],
@@ -163,7 +173,7 @@ describe('SessionsTree — handleDrop (la décision, pas le mécanisme VSCode)',
 
   it("ignore un dépôt sur le nœud d'état vide, pour la même raison", async () => {
     const onDrop = vi.fn().mockResolvedValue(undefined);
-    const tree = new SessionsTree(() => Promise.resolve(true), onDrop, EXT);
+    const tree = new SessionsTree(() => Promise.resolve(true), onDrop, noopOnGroupsDropped, EXT);
 
     await tree.handleDrop({ kind: 'empty', message: 'Aucune session Claude Code active' }, dataWith(['s1']));
 
@@ -172,7 +182,7 @@ describe('SessionsTree — handleDrop (la décision, pas le mécanisme VSCode)',
 
   it("un dépôt sur le dossier où la session se trouve déjà n'a pas d'effet différent d'une affectation normale", async () => {
     const onDrop = vi.fn().mockResolvedValue(undefined);
-    const tree = new SessionsTree(() => Promise.resolve(true), onDrop, EXT);
+    const tree = new SessionsTree(() => Promise.resolve(true), onDrop, noopOnGroupsDropped, EXT);
     const target: TreeNode = { kind: 'group', group: { id: 'g1', name: 'Dossier', order: 0 }, sessions: [session('s1')] };
 
     await tree.handleDrop(target, dataWith(['s1']));
@@ -188,7 +198,7 @@ describe('SessionsTree — handleDrop (la décision, pas le mécanisme VSCode)',
 
 describe('SessionsTree — handleDrag (ce qui part dans le transfert)', () => {
   it('place les identifiants des sessions sélectionnées sous notre type MIME', () => {
-    const tree = new SessionsTree(() => Promise.resolve(true), noopOnDrop, EXT);
+    const tree = new SessionsTree(() => Promise.resolve(true), noopOnDrop, noopOnGroupsDropped, EXT);
     const data = new DataTransfer();
 
     tree.handleDrag([sessionNode('s1'), sessionNode('s2')], data);
@@ -197,7 +207,7 @@ describe('SessionsTree — handleDrag (ce qui part dans le transfert)', () => {
   });
 
   it('ignore les nœuds qui ne sont pas des sessions (dossier sélectionné avec des sessions)', () => {
-    const tree = new SessionsTree(() => Promise.resolve(true), noopOnDrop, EXT);
+    const tree = new SessionsTree(() => Promise.resolve(true), noopOnDrop, noopOnGroupsDropped, EXT);
     const data = new DataTransfer();
 
     tree.handleDrag([groupNode('g1', 'Dossier'), sessionNode('s1')], data);
@@ -206,7 +216,7 @@ describe('SessionsTree — handleDrag (ce qui part dans le transfert)', () => {
   });
 
   it('ne pose rien dans le transfert quand aucune session n est sélectionnée', () => {
-    const tree = new SessionsTree(() => Promise.resolve(true), noopOnDrop, EXT);
+    const tree = new SessionsTree(() => Promise.resolve(true), noopOnDrop, noopOnGroupsDropped, EXT);
     const data = new DataTransfer();
 
     tree.handleDrag([groupNode('g1', 'Dossier')], data);
@@ -217,9 +227,100 @@ describe('SessionsTree — handleDrag (ce qui part dans le transfert)', () => {
 
 describe('SessionsTree — types MIME annoncés', () => {
   it("n'annonce que son propre type MIME, en glisser comme en déposer", () => {
-    const tree = new SessionsTree(() => Promise.resolve(true), noopOnDrop, EXT);
+    const tree = new SessionsTree(() => Promise.resolve(true), noopOnDrop, noopOnGroupsDropped, EXT);
 
-    expect(tree.dropMimeTypes).toEqual([MIME]);
-    expect(tree.dragMimeTypes).toEqual([MIME]);
+    expect(tree.dropMimeTypes).toEqual([MIME, GROUP_MIME]);
+    expect(tree.dragMimeTypes).toEqual([MIME, GROUP_MIME]);
+  });
+});
+
+describe('SessionsTree — moving the folders themselves', () => {
+  const make = (onGroups: ReturnType<typeof vi.fn>): SessionsTree =>
+    new SessionsTree(() => Promise.resolve(true), noopOnDrop, onGroups, EXT);
+
+  it('publishes the dragged folders under their own type, apart from the sessions', () => {
+    const tree = new SessionsTree(() => Promise.resolve(true), noopOnDrop, noopOnGroupsDropped, EXT);
+    const data = new DataTransfer();
+
+    tree.handleDrag([groupNode('g1', 'Perso'), sessionNode('s1')], data);
+
+    expect(data.get(GROUP_MIME)?.value).toEqual(['g1']);
+    expect(data.get(MIME)?.value).toEqual(['s1']);
+  });
+
+  it('never publishes « Unfiled »: it has no id, so there is nothing to move', () => {
+    const tree = new SessionsTree(() => Promise.resolve(true), noopOnDrop, noopOnGroupsDropped, EXT);
+    const data = new DataTransfer();
+
+    tree.handleDrag([unfiledNode()], data);
+
+    expect(data.get(GROUP_MIME)).toBeUndefined();
+  });
+
+  it('moves a folder in front of the one it was dropped on', async () => {
+    const onGroups = vi.fn().mockResolvedValue(undefined);
+    await make(onGroups).handleDrop(groupNode('g-work', 'Work'), groupDataWith(['g-perso']));
+
+    expect(onGroups).toHaveBeenCalledWith(['g-perso'], 'g-work');
+  });
+
+  it('reads « Unfiled » as the end of the list, since it has no id and always sits last', async () => {
+    const onGroups = vi.fn().mockResolvedValue(undefined);
+    await make(onGroups).handleDrop(unfiledNode(), groupDataWith(['g-perso']));
+
+    expect(onGroups).toHaveBeenCalledWith(['g-perso'], undefined);
+  });
+
+  it('does nothing when a folder is dropped on a session — that names no position among the folders', async () => {
+    const onGroups = vi.fn().mockResolvedValue(undefined);
+    await make(onGroups).handleDrop(sessionNode('s1'), groupDataWith(['g-perso']));
+
+    expect(onGroups).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when a folder is dropped on nothing at all', async () => {
+    const onGroups = vi.fn().mockResolvedValue(undefined);
+    await make(onGroups).handleDrop(undefined, groupDataWith(['g-perso']));
+
+    expect(onGroups).not.toHaveBeenCalled();
+  });
+
+  it('resolves a mixed drag by what it was dropped ON: onto a folder, the folders move', async () => {
+    const onDrop = vi.fn().mockResolvedValue(undefined);
+    const onGroups = vi.fn().mockResolvedValue(undefined);
+    const data = groupDataWith(['g-perso']);
+    data.set(MIME, new DataTransferItem(['s1']));
+
+    const tree = new SessionsTree(() => Promise.resolve(true), onDrop, onGroups, EXT);
+    await tree.handleDrop(groupNode('g-work', 'Work'), data);
+
+    expect(onGroups).toHaveBeenCalledWith(['g-perso'], 'g-work');
+    // and the sessions of that same drag are NOT filed at the same time: one
+    // gesture, one meaning.
+    expect(onDrop).not.toHaveBeenCalled();
+  });
+
+  it('files the sessions of a mixed drag when it lands on a session, rather than swallowing the whole drop', async () => {
+    const onDrop = vi.fn().mockResolvedValue(undefined);
+    const onGroups = vi.fn().mockResolvedValue(undefined);
+    const data = groupDataWith(['g-perso']);
+    data.set(MIME, new DataTransferItem(['s1']));
+
+    const tree = new SessionsTree(() => Promise.resolve(true), onDrop, onGroups, EXT);
+    tree.setSessions(new Map([['s2', session('s2')]]));
+    await tree.handleDrop(sessionNode('s2'), data);
+
+    expect(onGroups).not.toHaveBeenCalled();
+    expect(onDrop).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores anything that is not a list of strings, like the session path does', async () => {
+    const onGroups = vi.fn().mockResolvedValue(undefined);
+    const tree = make(onGroups);
+
+    await tree.handleDrop(groupNode('g-work', 'Work'), groupDataWith('g-perso'));
+    await tree.handleDrop(groupNode('g-work', 'Work'), groupDataWith([42, null]));
+
+    expect(onGroups).not.toHaveBeenCalled();
   });
 });

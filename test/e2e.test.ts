@@ -3,11 +3,17 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, wr
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { spoolDirs, type SpoolDirs } from '../src/paths';
-import { ensureDirs, readSessions } from '../src/spool/persist';
+import { closedFile, spoolDirs, type SpoolDirs } from '../src/paths';
+import { ensureDirs, readSession, readSessions, removeSession } from '../src/spool/persist';
 import { drain } from '../src/spool/watcher';
 import { countKohEntries } from '../src/hooks/installer';
-import { HOOK_EVENTS } from '../src/events/types';
+import { HOOK_EVENTS, type Session } from '../src/events/types';
+import { readClosed, rememberClosed } from '../src/closed/store';
+import { toClosedEntry } from '../src/closed/model';
+import { reopenPlan } from '../src/closed/reopen';
+import { withTokens } from '../src/transcript/tokens';
+import type { TranscriptStats } from '../src/transcript/reader';
+import { closeSessionHere } from '../src/close/close';
 
 // Bout en bout : installation des hooks sur une configuration bidon, exécution du
 // vrai bridge pour trois événements d'une même session, réduction par le chemin de
@@ -44,14 +50,14 @@ function runInstaller(...args: string[]): string {
   });
 }
 
-function runBridge(event: string, payload: Record<string, unknown>): void {
+function runBridge(event: string, payload: Record<string, unknown>, entrypoint = 'cli'): void {
   const out = execFileSync(BRIDGE, [event], {
     input: JSON.stringify(payload),
     env: {
       ...process.env,
       HOME: fakeHome,
       KOH_VIBE_HOME: kohHome,
-      CLAUDE_CODE_ENTRYPOINT: 'cli',
+      CLAUDE_CODE_ENTRYPOINT: entrypoint,
       TERM_PROGRAM: 'iTerm.app',
     },
     encoding: 'utf8',
@@ -161,5 +167,123 @@ describe('bout en bout : installer → bridge → réduction → désinstaller',
     const back = JSON.parse(readFileSync(settingsPath, 'utf8'));
     expect(countKohEntries(back)).toBe(0);
     expect(back).toEqual(bidonSettings);
+  });
+
+  it('archives a conversation when it ends, and knows how to bring it back', async () => {
+    runInstaller();
+
+    const closedPath = closedFile(kohHome);
+    const archive = (s: Session): Promise<void> =>
+      rememberClosed(closedPath, toClosedEntry(s, 1_000)).then(() => undefined);
+
+    runBridge('SessionStart', { session_id: SESSION_ID, cwd: projectDir });
+    await drain(dirs, Date.now(), undefined, archive);
+    runBridge('SessionEnd', { session_id: SESSION_ID, cwd: projectDir });
+    await drain(dirs, Date.now(), undefined, archive);
+
+    expect((await readSessions(dirs)).get(SESSION_ID)).toBeUndefined();
+
+    const state = await readClosed(closedPath);
+    expect(state.closed.map((e) => e.id)).toEqual([SESSION_ID]);
+    // The real bridge announces CLAUDE_CODE_ENTRYPOINT=cli: this conversation
+    // ran in a terminal, and that is where it must come back.
+    expect(state.closed[0]?.origin).toBe('terminal');
+    expect(reopenPlan(state.closed[0]?.origin, SESSION_ID, projectDir, 'mon-projet')).toEqual({
+      kind: 'terminal',
+      cwd: projectDir,
+      name: 'mon-projet',
+      command: `claude --resume ${SESSION_ID}`,
+    });
+  });
+
+  it('archives a conversation with the title read from its transcript — not just its id and origin (Critical 1)', async () => {
+    runInstaller();
+
+    const closedPath = closedFile(kohHome);
+    // Mirrors extension.ts's real archive callback: `title` never reaches
+    // sessions/<id>.json — `reduce` never writes it there — it only ever
+    // lives in the in-memory `transcripts` Map that `withTokens`
+    // (transcript/tokens.ts) fills, the same one `render()` keeps across
+    // ticks. Without this lookup, `s` (read straight off disk by `drain`)
+    // never carries a title, no matter what the transcript says.
+    const transcripts = new Map<string, TranscriptStats>();
+    const archive = (s: Session): Promise<void> => {
+      const stats = transcripts.get(s.id);
+      const source = { ...s, title: s.title ?? stats?.title, branch: s.branch ?? stats?.branch };
+      return rememberClosed(closedPath, toClosedEntry(source, 1_000)).then(() => undefined);
+    };
+
+    const transcriptPath = join(fakeHome, 'transcript.jsonl');
+    writeFileSync(
+      transcriptPath,
+      `${JSON.stringify({ type: 'custom-title', customTitle: 'Add the recycle bin' })}\n`,
+      'utf8',
+    );
+
+    runBridge('SessionStart', { session_id: SESSION_ID, cwd: projectDir, transcript_path: transcriptPath });
+    await drain(dirs, Date.now(), undefined, archive);
+
+    // What `render()` does every tick, before `tree.setSessions()`: read each
+    // session's transcript and cache its stats in `transcripts`.
+    await withTokens(await readSessions(dirs), transcripts);
+
+    runBridge('SessionEnd', { session_id: SESSION_ID, cwd: projectDir });
+    await drain(dirs, Date.now(), undefined, archive);
+
+    expect((await readSessions(dirs)).get(SESSION_ID)).toBeUndefined();
+
+    const state = await readClosed(closedPath);
+    expect(state.closed[0]?.id).toBe(SESSION_ID);
+    expect(state.closed[0]?.title).toBe('Add the recycle bin');
+  });
+
+  it('closes an editor conversation: its row goes, and it lands in the recently closed list', async () => {
+    runInstaller();
+
+    const closedPath = closedFile(kohHome);
+    const archive = (s: Session): Promise<void> =>
+      rememberClosed(closedPath, toClosedEntry(s, 1_000)).then(() => undefined);
+
+    runBridge('SessionStart', { session_id: SESSION_ID, cwd: projectDir }, 'claude-vscode');
+    await drain(dirs, Date.now());
+    expect((await readSessions(dirs)).get(SESSION_ID)?.origin).toBe('vscode');
+
+    // Everything here is production code except `closeTab`: closing a real tab
+    // needs a real extension host, which the manual checks at the end of the
+    // plan cover. What this proves is the rest of the chain — read the spool,
+    // archive, remove the row.
+    await closeSessionHere(SESSION_ID, {
+      read: (id) => readSession(dirs, id),
+      closeTab: async () => 'closed',
+      archive,
+      forget: (id) => removeSession(dirs, id),
+    });
+
+    expect((await readSessions(dirs)).get(SESSION_ID)).toBeUndefined();
+    const state = await readClosed(closedPath);
+    expect(state.closed.map((e) => e.id)).toEqual([SESSION_ID]);
+    expect(state.closed[0]?.origin).toBe('vscode');
+    expect(state.closed[0]?.project).toBe('mon-projet');
+  });
+
+  it('archives nothing when no tab was found — the row goes, the closed list stays empty', async () => {
+    runInstaller();
+
+    const closedPath = closedFile(kohHome);
+    const archive = (s: Session): Promise<void> =>
+      rememberClosed(closedPath, toClosedEntry(s, 1_000)).then(() => undefined);
+
+    runBridge('SessionStart', { session_id: SESSION_ID, cwd: projectDir }, 'claude-vscode');
+    await drain(dirs, Date.now());
+
+    await closeSessionHere(SESSION_ID, {
+      read: (id) => readSession(dirs, id),
+      closeTab: async () => 'notFound',
+      archive,
+      forget: (id) => removeSession(dirs, id),
+    });
+
+    expect((await readSessions(dirs)).get(SESSION_ID)).toBeUndefined();
+    expect((await readClosed(closedPath)).closed).toEqual([]);
   });
 });

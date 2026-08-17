@@ -74,3 +74,13 @@ export function settingsFile(home: string): string {
 export function groupsFile(home: string): string {
   return join(home, 'groups.json');
 }
+
+/**
+ * The recently closed conversations, shared between windows.
+ *
+ * Same reason as the folder layout: what one window has just closed must be
+ * offered for reopening in all the others.
+ */
+export function closedFile(home: string): string {
+  return join(home, 'closed.json');
+}

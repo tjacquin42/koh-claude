@@ -3,7 +3,10 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import { groupsFile, kohVibeHome, legacyHome, settingsFile, spoolDirs } from './paths';
+import { closedFile, groupsFile, kohVibeHome, legacyHome, settingsFile, spoolDirs } from './paths';
+import { readClosed, rememberClosed } from './closed/store';
+import { toClosedEntry, type ClosedEntry } from './closed/model';
+import { reopenClosedSession } from './closed/reopen';
 import { readSettings, seedSettings, writeSettings } from './settings/store';
 import { defaultSettings, type AppSettings } from './settings/model';
 import { migrateLegacyHome } from './store/migrate';
@@ -12,12 +15,12 @@ import { chimeFor, statusesOf, type ChimeEvent } from './sound/model';
 import { availableSounds, clampVolume, NO_SOUND, playFile, playNamed } from './sound/player';
 import { EVENT_TITLE, FooterTree, type SoundSettings } from './ui/footer-tree';
 import { UsageView } from './ui/usage-view';
-import { ensureDirs, readSessions, removeSession } from './spool/persist';
+import { ensureDirs, readSession, readSessions, removeSession } from './spool/persist';
 import { SpoolWatcher } from './spool/watcher';
 import { pruneAssignmentsAfterPurge } from './groups/purge';
 import {
   applyDrop, colorGroupCommand, createGroupCommand, deleteGroupCommand,
-  renameGroupCommand, runGroupAction, soundGroupCommand, soundSessionCommand,
+  renameGroupCommand, reorderGroupsCommand, runGroupAction, soundGroupCommand, soundSessionCommand,
 } from './groups/commands';
 import { colorChoice, GROUP_COLORS, NO_COLOR_LABEL } from './ui/colors';
 import { readGroups } from './groups/store';
@@ -26,11 +29,15 @@ import { installedCount, installLibrary, LIBRARY, librarySoundsDir, removeLibrar
 import type { TranscriptStats } from './transcript/reader';
 import { withTokens } from './transcript/tokens';
 import { SessionsTree, groupIdOfNode, sessionIdOfNode } from './ui/tree';
+import { ClosedTree } from './ui/closed-tree';
 import { decorationColorOf } from './ui/decorations';
 import { StatusSummary } from './ui/statusbar';
 import { readBuildStamp, versionLabel } from './ui/version';
+import { sessionLabel } from './ui/labels';
 import { FocusBroker } from './focus/broker';
 import { acknowledgeClickedSession, acknowledgeVisibleSessions } from './focus/acknowledge';
+import { closeSessionHere, requestCloseSession } from './close/close';
+import { closeSessionTab, vscodeTabs } from './close/tabs';
 import { countKohEntries } from './hooks/installer';
 import type { Session } from './events/types';
 import { GUARD_TIMEOUT_MS, ReentrantGuard } from './lib/reentrant-guard';
@@ -45,6 +52,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const dirs = spoolDirs(home);
   const groupsPath = groupsFile(home);
   const settingsPath = settingsFile(home);
+  const closedPath = closedFile(home);
   await ensureDirs(dirs);
   if (migrated === 'migrated') {
     void vscode.window.showInformationMessage(
@@ -76,6 +84,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     order: readonly string[],
   ): Promise<void> {
     await applyDrop(groupsPath, sessionIds, groupId, order);
+    await render();
+  }
+
+  async function onGroupsDropped(groupIds: readonly string[], beforeId: string | undefined): Promise<void> {
+    await reorderGroupsCommand(groupsPath, groupIds, beforeId);
     await render();
   }
 
@@ -186,11 +199,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return { sound: chosen === NONE_LABEL ? NO_SOUND : chosen };
   }
 
-  const tree = new SessionsTree(checkHooksInstalled, onSessionsDropped, context.extensionPath);
+  const tree = new SessionsTree(checkHooksInstalled, onSessionsDropped, onGroupsDropped, context.extensionPath);
   const footer = new FooterTree();
+  const closedTree = new ClosedTree();
   const usageView = new UsageView(() => void vscode.commands.executeCommand('kohVibe.refreshUsage'));
   const status = new StatusSummary();
-  const broker = new FocusBroker(dirs);
   const transcripts = new Map<string, TranscriptStats>();
 
   // Seul moyen offert par VSCode de colorer le TEXTE d'une ligne d'arbre. Sans
@@ -217,6 +230,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Trois vues empilées dans le conteneur : les sessions, la consommation,
     // puis les réglages. L'ordre vient de package.json, pas d'ici.
     vscode.window.registerWebviewViewProvider('kohVibe.usage', usageView),
+    vscode.window.createTreeView('kohVibe.closed', { treeDataProvider: closedTree }),
     vscode.window.createTreeView('kohVibe.settings', { treeDataProvider: footer }),
   );
 
@@ -267,6 +281,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // vaut « classement vide », voir groups/store.ts) : aucune garde de
         // type `*FailureWarned` n'est nécessaire ici.
         const groups = await readGroups(groupsPath);
+        // Re-read on every render, never cached: shared file, another window
+        // may have closed a conversation between two rounds. `readClosed` never
+        // fails (absent or unreadable means "empty list").
+        const closed = await readClosed(closedPath);
         // Le carillon avant l'affichage : `shouldChime` compare l'état du tour
         // précédent au nouveau, et `lastStatuses` doit avancer à CHAQUE rendu,
         // même silencieux — sinon la comparaison se ferait contre un état de
@@ -282,6 +300,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         lastStatuses = statuses;
         tree.setSessions(map);
         tree.setGroups(groups);
+        // Both, and in this order: the closed view hides an entry whose
+        // conversation is alive again, so it needs the live ids as much as the
+        // list itself.
+        closedTree.setClosed(closed.closed);
+        closedTree.setLive(map.keys());
         status.update(map);
       },
       () => {
@@ -297,6 +320,47 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       },
     );
   }
+
+  /**
+   * The closed-conversation history. `s` is read straight off disk: `title`,
+   * and `branch` for anything but a worktree path, are never written to
+   * `sessions/<id>.json` — `withTokens` (transcript/tokens.ts) only ever
+   * attaches them to the in-memory Map that `render()` holds here, in
+   * `transcripts`. Without this lookup, every archived conversation would
+   * carry neither, and five closed conversations of the same project would all
+   * show the bare project name.
+   *
+   * Shared by the drain (a natural `SessionEnd`) and, from the next task on, by
+   * the trash: two divergent archiving paths would silently lose the title on
+   * one of them.
+   */
+  const archive = (s: Session): Promise<void> => {
+    const stats = transcripts.get(s.id);
+    const source = { ...s, title: s.title ?? stats?.title, branch: s.branch ?? stats?.branch };
+    return rememberClosed(closedPath, toClosedEntry(source, Date.now())).then(() => undefined);
+  };
+
+  /**
+   * Removes a conversation from the dashboard: its state file, then its place
+   * in the folder layout — leaving the latter would resurrect a ghost ranking
+   * if the id ever came back, and would grow the shared file without end.
+   */
+  const forget = async (id: string): Promise<void> => {
+    await removeSession(dirs, id);
+    await pruneAssignmentsAfterPurge(dirs, groupsPath, [id]).catch(() => undefined);
+    await render();
+  };
+
+  const broker = new FocusBroker(dirs, {
+    closeHere: (id) =>
+      closeSessionHere(id, {
+        read: (i) => readSession(dirs, i),
+        closeTab: (i) => closeSessionTab(i, vscodeTabs()),
+        archive,
+        forget,
+      }),
+    forget,
+  });
 
   const watcher = new SpoolWatcher(
     dirs,
@@ -318,6 +382,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         vscode.l10n.t('Koh-Vibe: reading the events failed — it will be retried.'),
       );
     },
+    Date.now,
+    // The closed-conversation history. Errors are NOT swallowed here: `drain`
+    // relies on the rejection to leave the event in place and retry it.
+    archive,
   );
   watcher.start();
   broker.start();
@@ -357,6 +425,49 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // acknowledgeClickedSession est testée directement, comme sa jumelle.
       void acknowledgeClickedSession(dirs, s).catch(() => undefined);
       void broker.request(s).catch(() => undefined);
+    }),
+    // The three-way decision (terminal / editor tab / explain) is not made
+    // here: reopenClosedSession (closed/reopen.ts) owns it, and is tested
+    // directly, for the same reason acknowledgeVisibleSessions/
+    // acknowledgeClickedSession were pulled out of this file — see
+    // focus/acknowledge.ts.
+    vscode.commands.registerCommand('kohVibe.reopenSession', (entry: ClosedEntry) =>
+      reopenClosedSession(entry, (e) => broker.requestReopen(e)),
+    ),
+    /**
+     * The trash on a live conversation. The three-part decision — nothing to
+     * close, ask first, route — belongs to requestCloseSession (close/close.ts)
+     * and is tested there, for the same reason reopenClosedSession was pulled
+     * out of this file: a composition point living directly in extension.ts has
+     * no automated coverage.
+     */
+    vscode.commands.registerCommand('kohVibe.closeSession', async (node: unknown) => {
+      const id = sessionIdOfNode(node);
+      if (id === undefined) return;
+      const s = await readSession(dirs, id);
+      // Already gone from the spool: nothing to close, and nothing to remove.
+      if (s === undefined) return;
+      await requestCloseSession(s, {
+        confirm: async (target) =>
+          (await vscode.window.showWarningMessage(
+            vscode.l10n.t(
+              'Close « {0} »? This conversation is still active — closing its tab ends it.',
+              sessionLabel(target),
+            ),
+            { modal: true },
+            vscode.l10n.t('Close'),
+          )) !== undefined,
+        route: (target) => broker.requestClose(target),
+        forget,
+      }).catch(() => {
+        // Surfaced, never swallowed: the click would otherwise do and say
+        // nothing at all. Same precedent as reopenClosedSession (closed/
+        // reopen.ts), where a silently swallowed failure left a section whose
+        // only gesture IS that click doing nothing.
+        void vscode.window.showErrorMessage(
+          vscode.l10n.t('Koh-Vibe: could not close « {0} ».', sessionLabel(s)),
+        );
+      });
     }),
     vscode.commands.registerCommand('kohVibe.installHooks', () => {
       const terminal = vscode.window.createTerminal('Koh-Vibe');
@@ -563,16 +674,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const id = sessionIdOfNode(node);
       if (id === undefined) return;
       try {
-        await removeSession(dirs, id);
+        await forget(id);
       } catch {
         void vscode.window.showErrorMessage(vscode.l10n.t('Koh-Vibe: this conversation could not be removed.'));
-        return;
       }
-      // Son rangement part avec elle : dossier, place choisie, sons propres.
-      // Le laisser ferait ressurgir un classement fantôme si l'identifiant
-      // revenait, et gonflerait le fichier partagé sans fin.
-      await pruneAssignmentsAfterPurge(dirs, groupsPath, [id]).catch(() => undefined);
-      await render();
     }),
     vscode.commands.registerCommand('kohVibe.colorGroup', async (node: unknown) => {
       const id = groupIdOfNode(node);

@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,6 +8,7 @@ import { spoolDirs, type SpoolDirs } from '../src/paths';
 import { ensureDirs } from '../src/spool/persist';
 import { FocusBroker } from '../src/focus/broker';
 import type { Session } from '../src/events/types';
+import type { ClosedEntry } from '../src/closed/model';
 
 const session = (over: Partial<Session> = {}): Session => ({
   id: 's1',
@@ -29,8 +30,22 @@ let dirs: SpoolDirs;
 // ici pour être arrêté sans exception dans afterEach.
 let brokers: FocusBroker[];
 
+interface CloseCalls {
+  closeHere: string[];
+  forget: string[];
+}
+
+let closeCalls: CloseCalls;
+
 function makeBroker(): FocusBroker {
-  const b = new FocusBroker(dirs);
+  const b = new FocusBroker(dirs, {
+    closeHere: async (id: string) => {
+      closeCalls.closeHere.push(id);
+    },
+    forget: async (id: string) => {
+      closeCalls.forget.push(id);
+    },
+  });
   brokers.push(b);
   return b;
 }
@@ -54,6 +69,7 @@ beforeEach(async () => {
   setWorkspaceFolders(undefined);
   vi.restoreAllMocks();
   brokers = [];
+  closeCalls = { closeHere: [], forget: [] };
 });
 
 afterEach(() => {
@@ -227,6 +243,203 @@ describe('FocusBroker — consommation des requêtes (I3)', () => {
     const internal = broker as unknown as { consume: () => Promise<void> };
     await internal.consume();
 
+    expect(executeCommand).not.toHaveBeenCalled();
+  });
+});
+
+describe('requestReopen', () => {
+  const entry = (over: Partial<ClosedEntry> = {}): ClosedEntry => ({
+    id: 's1',
+    cwd: '/Users/dev/projet',
+    project: 'projet',
+    origin: 'vscode',
+    closedAt: 0,
+    ...over,
+  });
+
+  it('reopens straight away when this window claims the folder', async () => {
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
+    const run = vi.spyOn(vscode.commands, 'executeCommand').mockResolvedValue(undefined);
+    await makeBroker().requestReopen(entry());
+    expect(run).toHaveBeenCalledWith('claude-vscode.editor.open', 's1');
+    expect(await readdir(dirs.requests)).toEqual([]);
+  });
+
+  it('writes a request when another window holds the folder', async () => {
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/autre' } }]);
+    await makeBroker().requestReopen(entry());
+    expect(await readdir(dirs.requests)).toEqual(['reopen-s1.json']);
+  });
+
+  it('does nothing for a terminal-origin entry, and never writes a request — the caller opens the terminal locally', async () => {
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/autre' } }]);
+    await makeBroker().requestReopen(entry({ origin: 'terminal' }));
+    expect(await readdir(dirs.requests)).toEqual([]);
+  });
+
+  it('consumes a reopen request written for a folder it holds', async () => {
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
+    const run = vi.spyOn(vscode.commands, 'executeCommand').mockResolvedValue(undefined);
+    await writeFile(
+      join(dirs.requests, 'reopen-s9.json'),
+      JSON.stringify({ sessionId: 's9', cwd: '/Users/dev/projet', label: 'projet', origin: 'vscode', at: Date.now() }),
+      'utf8',
+    );
+    const broker = makeBroker();
+    broker.start();
+    await vi.waitFor(async () => {
+      expect(run).toHaveBeenCalledWith('claude-vscode.editor.open', 's9');
+    });
+    expect(await readdir(dirs.requests)).toEqual([]);
+  });
+
+  it('ignores a reopen request that carries a terminal origin', async () => {
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
+    const terminal = vi.spyOn(vscode.window, 'createTerminal');
+    await writeFile(
+      join(dirs.requests, 'reopen-s9.json'),
+      JSON.stringify({ sessionId: 's9', cwd: '/Users/dev/projet', label: 'projet', origin: 'terminal', at: Date.now() }),
+      'utf8',
+    );
+    const broker = makeBroker();
+    broker.start();
+    await vi.waitFor(async () => {
+      expect(await readdir(dirs.requests)).toEqual([]);
+    });
+    expect(terminal).not.toHaveBeenCalled();
+  });
+
+  it('explains rather than staying silent for an origin reopenPlan cannot turn into a command, even when this window holds the folder', async () => {
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
+    const info = vi.spyOn(vscode.window, 'showInformationMessage').mockResolvedValue(undefined);
+    const run = vi.spyOn(vscode.commands, 'executeCommand').mockResolvedValue(undefined);
+    await makeBroker().requestReopen(entry({ origin: 'sdk' }));
+    expect(info).toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+    expect(await readdir(dirs.requests)).toEqual([]);
+  });
+
+  it('explains locally rather than writing a request when no window holds the folder either, since no window could reopen this origin', async () => {
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/autre' } }]);
+    const info = vi.spyOn(vscode.window, 'showInformationMessage').mockResolvedValue(undefined);
+    const run = vi.spyOn(vscode.commands, 'executeCommand').mockResolvedValue(undefined);
+    await makeBroker().requestReopen(entry({ origin: 'unknown' }));
+    expect(info).toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+    expect(await readdir(dirs.requests)).toEqual([]);
+  });
+
+  it('warns instead of leaving a rejection unhandled when the editor command is missing on the local path', async () => {
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
+    vi.spyOn(vscode.commands, 'executeCommand').mockRejectedValue(new Error('no such command'));
+    const warn = vi.spyOn(vscode.window, 'showWarningMessage').mockResolvedValue(undefined);
+    await expect(makeBroker().requestReopen(entry())).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it('does not let a warning already shown for focus suppress the one reopen deserves — the flags are separate', async () => {
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
+    vi.spyOn(vscode.commands, 'executeCommand').mockRejectedValue(new Error('no such command'));
+    const warn = vi.spyOn(vscode.window, 'showWarningMessage').mockResolvedValue(undefined);
+    const broker = makeBroker();
+
+    // Two focus clicks: the first warns, the second stays silent — same cause,
+    // already told.
+    await broker.request(session());
+    await broker.request(session());
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    // A reopen click is a DIFFERENT gesture: it must still warn once, on its
+    // own flag, rather than inheriting the focus one's silence.
+    await broker.requestReopen(entry());
+    expect(warn).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('requestClose', () => {
+  it('closes here, without writing any request, when this window holds the folder', async () => {
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
+    const broker = makeBroker();
+
+    await broker.requestClose(session());
+
+    expect(closeCalls.closeHere).toEqual(['s1']);
+    expect(await readdir(dirs.requests)).toEqual([]);
+  });
+
+  it('writes a close request carrying the origin when another window holds the folder', async () => {
+    const broker = makeBroker();
+
+    await broker.requestClose(session());
+
+    const body: unknown = JSON.parse(await readFile(join(dirs.requests, 'close-s1.json'), 'utf8'));
+    expect(body).toMatchObject({ sessionId: 's1', cwd: '/Users/dev/projet', origin: 'vscode' });
+    expect(closeCalls.closeHere).toEqual([]);
+  });
+
+  it('removes the row when no window consumes the request — no window open means no tab to close', async () => {
+    vi.useFakeTimers();
+    try {
+      const broker = makeBroker();
+      await broker.requestClose(session());
+
+      await vi.advanceTimersByTimeAsync(2_000);
+      // The fallback reads, unlinks then forgets, all asynchronously.
+      await vi.waitFor(() => expect(closeCalls.forget).toEqual(['s1']));
+      expect(await readdir(dirs.requests)).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('consumes a close request written for a folder it holds', async () => {
+    const other = makeBroker();
+    await other.requestClose(session({ id: 's-cross' }));
+
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
+    const broker = makeBroker();
+    const internal = broker as unknown as { consume: () => Promise<void> };
+    await internal.consume();
+
+    expect(closeCalls.closeHere).toEqual(['s-cross']);
+    expect(await readdir(dirs.requests)).toEqual([]);
+  });
+
+  it('discards a close request that does not carry an editor origin, and closes nothing', async () => {
+    await writeFile(
+      join(dirs.requests, 'close-s-term.json'),
+      JSON.stringify({ sessionId: 's-term', cwd: '/Users/dev/projet', label: 'projet', origin: 'terminal', at: Date.now() }),
+      'utf8',
+    );
+
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
+    const broker = makeBroker();
+    const internal = broker as unknown as { consume: () => Promise<void> };
+    await internal.consume();
+
+    expect(closeCalls.closeHere).toEqual([]);
+    expect(await readdir(dirs.requests)).toEqual([]);
+  });
+
+  it('shows an error rather than dying silently when a consumed close request fails to close, and never falls through to the focus path', async () => {
+    const showError = vi.spyOn(vscode.window, 'showErrorMessage').mockResolvedValue(undefined);
+    const executeCommand = vi.spyOn(vscode.commands, 'executeCommand').mockResolvedValue(undefined);
+
+    const other = makeBroker();
+    await other.requestClose(session({ id: 's-cross' }));
+
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
+    const failing = new FocusBroker(dirs, {
+      closeHere: async () => {
+        throw new Error('archive write failed');
+      },
+      forget: async () => undefined,
+    });
+    brokers.push(failing);
+    const internal = failing as unknown as { consume: () => Promise<void> };
+    await internal.consume();
+
+    expect(showError).toHaveBeenCalled();
     expect(executeCommand).not.toHaveBeenCalled();
   });
 });

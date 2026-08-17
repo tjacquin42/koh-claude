@@ -2,6 +2,7 @@
   "extension.description": "All your Claude Code sessions in a single view: live status, folders, usage and chimes.",
   "command.kohVibe.refresh.title": "Refresh",
   "command.kohVibe.focusSession.title": "Go to session",
+  "command.kohVibe.reopenSession.title": "Reopen conversation",
   "command.kohVibe.installHooks.title": "Install hooks",
   "command.kohVibe.uninstallHooks.title": "Uninstall hooks",
   "command.kohVibe.newGroup.title": "New folder",
@@ -19,8 +20,10 @@
   "command.kohVibe.soundSession.waiting.title": "Conversation sound when it waits for you",
   "command.kohVibe.soundSession.done.title": "Conversation sound when it finishes",
   "command.kohVibe.forgetSession.title": "Remove from the list",
+  "command.kohVibe.closeSession.title": "Close conversation",
   "command.kohVibe.refreshUsage.title": "Refresh usage",
   "view.kohVibe.sessions.name": "Sessions",
+  "view.kohVibe.closed.name": "Recently closed",
   "view.kohVibe.usage.name": "Usage",
   "view.kohVibe.settings.name": "Settings"
 }

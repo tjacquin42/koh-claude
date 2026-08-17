@@ -18,8 +18,16 @@ le trousseau du système, et les ponts de hooks sont des scripts zsh.
   attendent d'abord, puis celles qui travaillent, puis celles qui viennent de finir.
 - **Une pastille de statut** par session — même glyphe, cinq couleurs — et, à côté, le projet,
   la branche et l'outil en cours d'exécution.
+- **Fermé récemment**, une vue à part qui retient les dix conversations terminées le plus
+  récemment, pour qu'une session qu'on vient de quitter ne disparaisse pas d'un coup.
+- **Fermer une conversation** avec l'icône corbeille qui apparaît au survol d'une ligne
+  vivante. Elle ferme son onglet Claude Code, ce qui met fin à la conversation et la range
+  dans *Fermé récemment*. Quand aucun onglet n'est trouvé — une conversation dans un
+  terminal, dans l'application de bureau Claude, ou dans un projet qu'aucune fenêtre n'a
+  ouvert — la ligne est simplement retirée de la liste.
 - **Votre consommation** sur cinq heures et sept jours, avec l'échéance de remise à zéro.
-- **Un clic** sur une session ouvre ou reprend sa fenêtre, où qu'elle soit.
+- **Un clic** sur une session ouvre ou reprend sa fenêtre, où qu'elle soit — y compris une
+  session fermée.
 
 ## Installation
 
@@ -57,7 +65,9 @@ rien. **Koh-Vibe: Désinstaller les hooks** défait exactement cela.
 
 **Ranger.** Créez des dossiers, glissez-y des sessions, donnez-leur une couleur. L'ordre à
 l'intérieur d'un dossier se fixe à la main et ne bouge plus : une session ouverte plus tard
-se pose à la fin sans bousculer ce qui a été placé.
+se pose à la fin sans bousculer ce qui a été placé. Les dossiers eux-mêmes se glissent de la
+même façon — déposez-en un sur un autre pour le placer devant, ou sur *Sans dossier* pour
+l'envoyer à la fin.
 
 **Sonner.** Un carillon quand une session se met à vous attendre, un autre quand elle vient
 de finir. Trois niveaux, du plus précis au plus général : le son d'une conversation l'emporte
@@ -75,6 +85,11 @@ Dans la liste de choix, les flèches font entendre chaque son ; **→** rejoue l
 Code tourne dans son terminal, et une session encore vivante réapparaîtra à son prochain
 événement.
 
+**Rouvrir.** Une conversation qui vient de se terminer ne disparaît pas : elle passe dans
+*Fermé récemment*, sa propre vue, tant que neuf autres ne l'ont pas encore poussée dehors.
+Un clic la ramène — dans l'onglet d'éditeur où elle tournait, ou dans un terminal neuf posé
+sur son dossier, selon d'où elle venait.
+
 ## Où vivent les données
 
 Tout tient dans `~/.koh-vibe/` :
@@ -85,9 +100,10 @@ Tout tient dans `~/.koh-vibe/` :
 | `events/` | le spool : un fichier par événement, consommé puis effacé |
 | `events/rejected/` | ce qui n'a pas pu être lu, gardé plutôt que jeté |
 | `sessions/` | l'état réduit, un fichier par session |
-| `requests/` | les demandes de mise au premier plan, d'une fenêtre à l'autre |
+| `requests/` | les demandes de mise au premier plan, de réouverture et de fermeture, d'une fenêtre à l'autre |
 | `backups/` | les copies de `settings.json` prises avant chaque pose de hooks |
 | `groups.json` | les dossiers, leurs couleurs, l'ordre choisi et les sons |
+| `closed.json` | les dix conversations fermées le plus récemment |
 | `settings.json` | les sons globaux et le volume |
 | `usage.json` | le dernier relevé de consommation, mis en cache |
 | `status.json` | le dernier instantané de la statusline |

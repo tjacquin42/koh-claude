@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { formatAge, formatAgeCoarse, formatTokens, sessionDescription, sessionLabel, sessionTooltip, statusLabel } from '../src/ui/labels';
+import {
+  closedDescription,
+  closedTooltip,
+  formatAge,
+  formatAgeCoarse,
+  formatTokens,
+  sessionDescription,
+  sessionLabel,
+  sessionTooltip,
+  statusLabel,
+} from '../src/ui/labels';
 import type { Session } from '../src/events/types';
+import type { ClosedEntry } from '../src/closed/model';
 
 const s: Session = {
   id: 'abc', cwd: '/Users/dev/projet/.worktrees/feat-seo',
@@ -101,5 +112,63 @@ describe('formatAgeCoarse', () => {
 
   it('laisse l infobulle garder la précision à la seconde', () => {
     expect(formatAge(30_000)).toBe('30 s');
+  });
+});
+
+describe('closed conversations', () => {
+  const closed = (over: Partial<ClosedEntry> = {}): ClosedEntry => ({
+    id: 'a',
+    cwd: '/Users/dev/projet',
+    project: 'projet',
+    origin: 'vscode',
+    closedAt: 0,
+    ...over,
+  });
+
+  it('labels a closed conversation by the same rule as a live one', () => {
+    expect(sessionLabel(closed({ title: 'Ajouter la corbeille' }))).toBe('Ajouter la corbeille');
+    expect(sessionLabel(closed({ branch: 'feat-x' }))).toBe('projet · feat-x');
+    expect(sessionLabel(closed())).toBe('projet');
+  });
+
+  it('describes only the age when there is no title — the label already says where, via sessionLabel', () => {
+    // Mirrors sessionDescription's own rule: repeating "project · branch" here
+    // too would make the row read "projet, projet · closed 3 min" once label
+    // and description are read together (accessibilityInformation).
+    expect(closedDescription(closed({ branch: 'feat-x' }), 120_000)).toBe('closed 2 min');
+  });
+
+  it('stays stable through the first minute, like the live rows', () => {
+    expect(closedDescription(closed(), 5_000)).toBe('closed just now');
+  });
+
+  it('prepends where it worked once a title has taken over the label, like a live row', () => {
+    expect(closedDescription(closed({ branch: 'feat-x', title: 'Titre' }), 120_000)).toBe(
+      'projet · feat-x · closed 2 min',
+    );
+    expect(closedDescription(closed({ title: 'Titre' }), 120_000)).toBe('projet · closed 2 min');
+  });
+
+  it('tells the origin and how to bring it back in the tooltip', () => {
+    const lines = closedTooltip(closed({ branch: 'feat-x' }), 60_000).split('\n');
+    expect(lines[0]).toBe('projet / feat-x');
+    expect(lines).toContain('origin: vscode');
+    expect(lines).toContain('Click to reopen');
+    expect(lines.at(-1)).toBe('/Users/dev/projet');
+  });
+
+  it('tells the origin and how to bring it back in the tooltip, without a branch', () => {
+    const lines = closedTooltip(closed(), 60_000).split('\n');
+    expect(lines[0]).toBe('projet');
+    expect(lines).toContain('origin: vscode');
+    expect(lines).toContain('Click to reopen');
+    expect(lines.at(-1)).toBe('/Users/dev/projet');
+  });
+
+  it('does not promise reopening for an origin reopenPlan can only explain, never reopen', () => {
+    for (const origin of ['sdk', 'unknown'] as const) {
+      const lines = closedTooltip(closed({ origin }), 60_000).split('\n');
+      expect(lines).not.toContain('Click to reopen');
+    }
   });
 });
