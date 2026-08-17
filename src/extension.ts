@@ -32,9 +32,10 @@ import { SessionsTree, groupIdOfNode, sessionIdOfNode } from './ui/tree';
 import { decorationColorOf } from './ui/decorations';
 import { StatusSummary } from './ui/statusbar';
 import { readBuildStamp, versionLabel } from './ui/version';
+import { sessionLabel } from './ui/labels';
 import { FocusBroker } from './focus/broker';
 import { acknowledgeClickedSession, acknowledgeVisibleSessions } from './focus/acknowledge';
-import { closeSessionHere } from './close/close';
+import { closeSessionHere, requestCloseSession } from './close/close';
 import { closeSessionTab, vscodeTabs } from './close/tabs';
 import { countKohEntries } from './hooks/installer';
 import type { Session } from './events/types';
@@ -421,6 +422,41 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('kohVibe.reopenSession', (entry: ClosedEntry) =>
       reopenClosedSession(entry, (e) => broker.requestReopen(e)),
     ),
+    /**
+     * The trash on a live conversation. The three-part decision — nothing to
+     * close, ask first, route — belongs to requestCloseSession (close/close.ts)
+     * and is tested there, for the same reason reopenClosedSession was pulled
+     * out of this file: a composition point living directly in extension.ts has
+     * no automated coverage.
+     */
+    vscode.commands.registerCommand('kohVibe.closeSession', async (node: unknown) => {
+      const id = sessionIdOfNode(node);
+      if (id === undefined) return;
+      const s = await readSession(dirs, id);
+      // Already gone from the spool: nothing to close, and nothing to remove.
+      if (s === undefined) return;
+      await requestCloseSession(s, {
+        confirm: async (target) =>
+          (await vscode.window.showWarningMessage(
+            vscode.l10n.t(
+              'Close « {0} »? This conversation is still active — closing its tab ends it.',
+              sessionLabel(target),
+            ),
+            { modal: true },
+            vscode.l10n.t('Close'),
+          )) !== undefined,
+        route: (target) => broker.requestClose(target),
+        forget,
+      }).catch(() => {
+        // Surfaced, never swallowed: the click would otherwise do and say
+        // nothing at all. Same precedent as reopenClosedSession (closed/
+        // reopen.ts), where a silently swallowed failure left a section whose
+        // only gesture IS that click doing nothing.
+        void vscode.window.showErrorMessage(
+          vscode.l10n.t('Koh-Vibe: could not close « {0} ».', sessionLabel(s)),
+        );
+      });
+    }),
     vscode.commands.registerCommand('kohVibe.installHooks', () => {
       const terminal = vscode.window.createTerminal('Koh-Vibe');
       terminal.sendText(`node "${installScript}"`);
