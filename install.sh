@@ -20,6 +20,12 @@
 # — that is why an update seemed to need a full restart. A fresh number each
 # time lands in a fresh directory, and a window reload is always enough.
 # `package.json` is not touched: the number is passed to the packager instead.
+#
+# The clock goes in the PATCH slot rather than a `-dev` suffix, because the
+# branches do not share a version: `main` is ahead of `dev`, so a `-dev` build
+# off a feature branch would rank BELOW one built from `main` and the editor
+# would keep the one it had. A patch number driven by the clock only ever goes
+# up, whichever branch you build from.
 set -eu
 
 cd "$(dirname "$0")"
@@ -51,7 +57,7 @@ Open the integrated terminal of the editor you want this installed into, and run
 cli="$resources/bin/$(node -p "require('$resources/product.json').applicationName")"
 [ -x "$cli" ] || die "\"$cli\" is missing or not executable."
 
-version="$(node -p "require('./package.json').version")-dev.$(date +%s)"
+version="$(node -p "require('./package.json').version.split('.').slice(0, 2).join('.')").$(date +%s)"
 
 printf 'Editor  %s\n' "$(node -p "require('$resources/product.json').nameLong")"
 printf 'Version %s\n\n' "$version"
