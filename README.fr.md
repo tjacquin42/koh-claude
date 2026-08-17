@@ -20,6 +20,11 @@ le trousseau du système, et les ponts de hooks sont des scripts zsh.
   la branche et l'outil en cours d'exécution.
 - **Fermé récemment**, les cinq conversations terminées le plus récemment, gardées sous les
   sessions vivantes pour qu'une session qu'on vient de quitter ne disparaisse pas d'un coup.
+- **Fermer une conversation** avec l'icône corbeille qui apparaît au survol d'une ligne
+  vivante. Elle ferme son onglet Claude Code, ce qui met fin à la conversation et la range
+  dans *Fermé récemment*. Quand aucun onglet n'est trouvé — une conversation dans un
+  terminal, ou dans un projet qu'aucune fenêtre n'a ouvert — la ligne est simplement retirée
+  de la liste.
 - **Votre consommation** sur cinq heures et sept jours, avec l'échéance de remise à zéro.
 - **Un clic** sur une session ouvre ou reprend sa fenêtre, où qu'elle soit — y compris une
   session fermée.
@@ -93,7 +98,7 @@ Tout tient dans `~/.koh-vibe/` :
 | `events/` | le spool : un fichier par événement, consommé puis effacé |
 | `events/rejected/` | ce qui n'a pas pu être lu, gardé plutôt que jeté |
 | `sessions/` | l'état réduit, un fichier par session |
-| `requests/` | les demandes de mise au premier plan et de réouverture, d'une fenêtre à l'autre |
+| `requests/` | les demandes de mise au premier plan, de réouverture et de fermeture, d'une fenêtre à l'autre |
 | `backups/` | les copies de `settings.json` prises avant chaque pose de hooks |
 | `groups.json` | les dossiers, leurs couleurs, l'ordre choisi et les sons |
 | `closed.json` | les cinq conversations fermées le plus récemment |

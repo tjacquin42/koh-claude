@@ -20,6 +20,10 @@ and the hook bridges are zsh scripts.
   the tool currently running.
 - **Recently closed**, the five conversations that ended most recently, kept below the live
   ones so a session you just finished with is not gone the instant it disappears.
+- **Close a conversation** with the trash icon that appears when you hover a live row. It
+  closes its Claude Code tab, which ends the conversation and files it under *Recently
+  closed*. When no tab is found — a conversation running in a terminal, or in a project no
+  window has open — the row is simply removed from the list.
 - **Your usage** over five hours and seven days, with the time until it resets.
 - **One click** opens or resumes a session's window, wherever it lives — a closed one included.
 
@@ -87,7 +91,7 @@ Everything sits under `~/.koh-vibe/`:
 | `events/` | the spool: one file per event, consumed then deleted |
 | `events/rejected/` | what could not be read, kept rather than dropped |
 | `sessions/` | the reduced state, one file per session |
-| `requests/` | focus and reopen requests, from one window to another |
+| `requests/` | focus, reopen and close requests, from one window to another |
 | `backups/` | copies of `settings.json` taken before each hook install |
 | `groups.json` | folders, their colours, the chosen order and the sounds |
 | `closed.json` | the five most recently closed conversations |

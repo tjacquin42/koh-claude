@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { closedFile, spoolDirs, type SpoolDirs } from '../src/paths';
-import { ensureDirs, readSessions } from '../src/spool/persist';
+import { ensureDirs, readSession, readSessions, removeSession } from '../src/spool/persist';
 import { drain } from '../src/spool/watcher';
 import { countKohEntries } from '../src/hooks/installer';
 import { HOOK_EVENTS, type Session } from '../src/events/types';
@@ -13,6 +13,7 @@ import { toClosedEntry } from '../src/closed/model';
 import { reopenPlan } from '../src/closed/reopen';
 import { withTokens } from '../src/transcript/tokens';
 import type { TranscriptStats } from '../src/transcript/reader';
+import { closeSessionHere } from '../src/close/close';
 
 // Bout en bout : installation des hooks sur une configuration bidon, exécution du
 // vrai bridge pour trois événements d'une même session, réduction par le chemin de
@@ -49,14 +50,14 @@ function runInstaller(...args: string[]): string {
   });
 }
 
-function runBridge(event: string, payload: Record<string, unknown>): void {
+function runBridge(event: string, payload: Record<string, unknown>, entrypoint = 'cli'): void {
   const out = execFileSync(BRIDGE, [event], {
     input: JSON.stringify(payload),
     env: {
       ...process.env,
       HOME: fakeHome,
       KOH_VIBE_HOME: kohHome,
-      CLAUDE_CODE_ENTRYPOINT: 'cli',
+      CLAUDE_CODE_ENTRYPOINT: entrypoint,
       TERM_PROGRAM: 'iTerm.app',
     },
     encoding: 'utf8',
@@ -234,5 +235,55 @@ describe('bout en bout : installer → bridge → réduction → désinstaller',
     const state = await readClosed(closedPath);
     expect(state.closed[0]?.id).toBe(SESSION_ID);
     expect(state.closed[0]?.title).toBe('Add the recycle bin');
+  });
+
+  it('closes an editor conversation: its row goes, and it lands in the recently closed list', async () => {
+    runInstaller();
+
+    const closedPath = closedFile(kohHome);
+    const archive = (s: Session): Promise<void> =>
+      rememberClosed(closedPath, toClosedEntry(s, 1_000)).then(() => undefined);
+
+    runBridge('SessionStart', { session_id: SESSION_ID, cwd: projectDir }, 'claude-vscode');
+    await drain(dirs, Date.now());
+    expect((await readSessions(dirs)).get(SESSION_ID)?.origin).toBe('vscode');
+
+    // Everything here is production code except `closeTab`: closing a real tab
+    // needs a real extension host, which the manual checks at the end of the
+    // plan cover. What this proves is the rest of the chain — read the spool,
+    // archive, remove the row.
+    await closeSessionHere(SESSION_ID, {
+      read: (id) => readSession(dirs, id),
+      closeTab: async () => 'closed',
+      archive,
+      forget: (id) => removeSession(dirs, id),
+    });
+
+    expect((await readSessions(dirs)).get(SESSION_ID)).toBeUndefined();
+    const state = await readClosed(closedPath);
+    expect(state.closed.map((e) => e.id)).toEqual([SESSION_ID]);
+    expect(state.closed[0]?.origin).toBe('vscode');
+    expect(state.closed[0]?.project).toBe('mon-projet');
+  });
+
+  it('archives nothing when no tab was found — the row goes, the closed list stays empty', async () => {
+    runInstaller();
+
+    const closedPath = closedFile(kohHome);
+    const archive = (s: Session): Promise<void> =>
+      rememberClosed(closedPath, toClosedEntry(s, 1_000)).then(() => undefined);
+
+    runBridge('SessionStart', { session_id: SESSION_ID, cwd: projectDir }, 'claude-vscode');
+    await drain(dirs, Date.now());
+
+    await closeSessionHere(SESSION_ID, {
+      read: (id) => readSession(dirs, id),
+      closeTab: async () => 'notFound',
+      archive,
+      forget: (id) => removeSession(dirs, id),
+    });
+
+    expect((await readSessions(dirs)).get(SESSION_ID)).toBeUndefined();
+    expect((await readClosed(closedPath)).closed).toEqual([]);
   });
 });
