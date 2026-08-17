@@ -2,11 +2,15 @@ import { isValidSessionId } from '../events/parse';
 import type { Origin } from '../events/types';
 
 /**
- * How many closed conversations the section keeps. Deliberately fixed: a
- * setting would have to be shared between windows like everything else in
- * `~/.koh-vibe`, and nothing suggests five is the wrong number.
+ * How many closed conversations the view keeps. Deliberately fixed: a setting
+ * would have to be shared between windows like everything else in
+ * `~/.koh-vibe`, for a number nobody would come back to twice.
+ *
+ * Ten rather than five since the history moved out of the session tree and
+ * into a view of its own: it no longer competes for room with the live
+ * sessions, so the list can be as long as it is useful.
  */
-export const MAX_CLOSED = 5;
+export const MAX_CLOSED = 10;
 
 /**
  * A conversation as it was when it ended — a frozen snapshot, not a reference.

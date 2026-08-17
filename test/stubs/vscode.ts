@@ -121,6 +121,41 @@ export interface StubTerminal {
   show: () => void;
 }
 
+/**
+ * A webview tab's input, as the real API exposes it. Only `viewType` matters
+ * here: a Claude Code panel is created as `claudeVSCodePanel`, and VSCode
+ * prefixes it (`mainThreadWebview-claudeVSCodePanel`), hence the substring
+ * test rather than an equality — the same test the Claude Code bundle uses on
+ * its own tabs.
+ */
+export class TabInputWebview {
+  constructor(public readonly viewType: string) {}
+}
+
+export interface StubTab {
+  /** `unknown` like `DataTransferItem.value`: whoever reads it must narrow it. */
+  input: unknown;
+}
+
+export interface StubTabGroup {
+  tabs: StubTab[];
+  activeTab: StubTab | undefined;
+}
+
+export const tabChange = new EventEmitter<void>();
+
+export const stubTabGroups: {
+  all: StubTabGroup[];
+  activeTabGroup: StubTabGroup;
+  onDidChangeTabs: (listener: () => void) => { dispose: () => void };
+  close: (tab: StubTab) => Promise<boolean>;
+} = {
+  all: [],
+  activeTabGroup: { tabs: [], activeTab: undefined },
+  onDidChangeTabs: (listener) => tabChange.event(listener),
+  close: async (): Promise<boolean> => true,
+};
+
 export const window = {
   showInformationMessage: async (..._args: unknown[]): Promise<string | undefined> => undefined,
   showWarningMessage: async (..._args: unknown[]): Promise<string | undefined> => undefined,
@@ -134,6 +169,7 @@ export const window = {
     sendText: () => undefined,
     show: () => undefined,
   }),
+  tabGroups: stubTabGroups,
 };
 
 export const workspace: { workspaceFolders: Array<{ uri: { fsPath: string } }> | undefined } = {
