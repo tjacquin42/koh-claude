@@ -26,6 +26,7 @@
     "views": {
       "koh-vibe": [
         { "id": "kohVibe.sessions", "name": "%view.kohVibe.sessions.name%", "icon": "resources/logo-mono.svg", "initialSize": 20 },
+        { "id": "kohVibe.closed", "name": "%view.kohVibe.closed.name%", "icon": "resources/logo-mono.svg", "initialSize": 5, "visibility": "collapsed" },
         { "id": "kohVibe.usage", "name": "%view.kohVibe.usage.name%", "type": "webview", "icon": "resources/logo-mono.svg", "initialSize": 3 },
         { "id": "kohVibe.settings", "name": "%view.kohVibe.settings.name%", "icon": "resources/logo-mono.svg", "initialSize": 4 }
       ]

@@ -18,8 +18,8 @@ and the hook bridges are zsh scripts.
   the ones working, then the ones that just finished.
 - **A status dot** per session — one glyph, five colours — next to the project, the branch and
   the tool currently running.
-- **Recently closed**, the five conversations that ended most recently, kept below the live
-  ones so a session you just finished with is not gone the instant it disappears.
+- **Recently closed**, a view of its own holding the ten conversations that ended most
+  recently, so a session you just finished with is not gone the instant it disappears.
 - **Close a conversation** with the trash icon that appears when you hover a live row. It
   closes its Claude Code tab, which ends the conversation and files it under *Recently
   closed*. When no tab is found — a conversation running in a terminal, in the Claude desktop
@@ -94,7 +94,7 @@ Everything sits under `~/.koh-vibe/`:
 | `requests/` | focus, reopen and close requests, from one window to another |
 | `backups/` | copies of `settings.json` taken before each hook install |
 | `groups.json` | folders, their colours, the chosen order and the sounds |
-| `closed.json` | the five most recently closed conversations |
+| `closed.json` | the ten most recently closed conversations |
 | `settings.json` | global sounds and volume |
 | `usage.json` | the last usage reading, cached |
 | `status.json` | the last status-line snapshot |

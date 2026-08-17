@@ -18,8 +18,8 @@ le trousseau du système, et les ponts de hooks sont des scripts zsh.
   attendent d'abord, puis celles qui travaillent, puis celles qui viennent de finir.
 - **Une pastille de statut** par session — même glyphe, cinq couleurs — et, à côté, le projet,
   la branche et l'outil en cours d'exécution.
-- **Fermé récemment**, les cinq conversations terminées le plus récemment, gardées sous les
-  sessions vivantes pour qu'une session qu'on vient de quitter ne disparaisse pas d'un coup.
+- **Fermé récemment**, une vue à part qui retient les dix conversations terminées le plus
+  récemment, pour qu'une session qu'on vient de quitter ne disparaisse pas d'un coup.
 - **Fermer une conversation** avec l'icône corbeille qui apparaît au survol d'une ligne
   vivante. Elle ferme son onglet Claude Code, ce qui met fin à la conversation et la range
   dans *Fermé récemment*. Quand aucun onglet n'est trouvé — une conversation dans un
@@ -84,9 +84,9 @@ Code tourne dans son terminal, et une session encore vivante réapparaîtra à s
 événement.
 
 **Rouvrir.** Une conversation qui vient de se terminer ne disparaît pas : elle passe dans
-*Fermé récemment*, sous les sessions vivantes, tant que quatre autres ne l'ont pas encore
-poussée dehors. Un clic la ramène — dans l'onglet d'éditeur où elle tournait, ou dans un
-terminal neuf posé sur son dossier, selon d'où elle venait.
+*Fermé récemment*, sa propre vue, tant que neuf autres ne l'ont pas encore poussée dehors.
+Un clic la ramène — dans l'onglet d'éditeur où elle tournait, ou dans un terminal neuf posé
+sur son dossier, selon d'où elle venait.
 
 ## Où vivent les données
 
@@ -101,7 +101,7 @@ Tout tient dans `~/.koh-vibe/` :
 | `requests/` | les demandes de mise au premier plan, de réouverture et de fermeture, d'une fenêtre à l'autre |
 | `backups/` | les copies de `settings.json` prises avant chaque pose de hooks |
 | `groups.json` | les dossiers, leurs couleurs, l'ordre choisi et les sons |
-| `closed.json` | les cinq conversations fermées le plus récemment |
+| `closed.json` | les dix conversations fermées le plus récemment |
 | `settings.json` | les sons globaux et le volume |
 | `usage.json` | le dernier relevé de consommation, mis en cache |
 | `status.json` | le dernier instantané de la statusline |

@@ -29,6 +29,7 @@ import { installedCount, installLibrary, LIBRARY, librarySoundsDir, removeLibrar
 import type { TranscriptStats } from './transcript/reader';
 import { withTokens } from './transcript/tokens';
 import { SessionsTree, groupIdOfNode, sessionIdOfNode } from './ui/tree';
+import { ClosedTree } from './ui/closed-tree';
 import { decorationColorOf } from './ui/decorations';
 import { StatusSummary } from './ui/statusbar';
 import { readBuildStamp, versionLabel } from './ui/version';
@@ -195,6 +196,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const tree = new SessionsTree(checkHooksInstalled, onSessionsDropped, context.extensionPath);
   const footer = new FooterTree();
+  const closedTree = new ClosedTree();
   const usageView = new UsageView(() => void vscode.commands.executeCommand('kohVibe.refreshUsage'));
   const status = new StatusSummary();
   const transcripts = new Map<string, TranscriptStats>();
@@ -223,6 +225,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Trois vues empilées dans le conteneur : les sessions, la consommation,
     // puis les réglages. L'ordre vient de package.json, pas d'ici.
     vscode.window.registerWebviewViewProvider('kohVibe.usage', usageView),
+    vscode.window.createTreeView('kohVibe.closed', { treeDataProvider: closedTree }),
     vscode.window.createTreeView('kohVibe.settings', { treeDataProvider: footer }),
   );
 
@@ -292,7 +295,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         lastStatuses = statuses;
         tree.setSessions(map);
         tree.setGroups(groups);
-        tree.setClosed(closed.closed);
+        // Both, and in this order: the closed view hides an entry whose
+        // conversation is alive again, so it needs the live ids as much as the
+        // list itself.
+        closedTree.setClosed(closed.closed);
+        closedTree.setLive(map.keys());
         status.update(map);
       },
       () => {
