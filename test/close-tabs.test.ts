@@ -23,6 +23,7 @@ function tabs(
   counts: readonly [number, number],
   active: string | undefined,
   revealFails = false,
+  closeSucceeds = true,
 ): ClaudeTabs<string> {
   let calls = 0;
   return {
@@ -46,6 +47,7 @@ function tabs(
     close: async (tab: string) => {
       rec.log.push('close');
       rec.closed.push(tab);
+      return closeSucceeds;
     },
   };
 }
@@ -90,6 +92,21 @@ describe('closeSessionTab', () => {
     await closeSessionTab('s1', tabs(rec, [2, 2], 'panel'));
 
     expect(rec.log).toEqual(['count', 'reveal', 'settled', 'count', 'activeClaude', 'close']);
+  });
+
+  it('reports nothing found when the close is refused or cancelled, even though the tab was found and a close was attempted', async () => {
+    const rec = recorder();
+    const outcome = await closeSessionTab('s1', tabs(rec, [2, 2], 'panel', false, false));
+
+    expect(outcome).toBe('notFound');
+    expect(rec.closed).toEqual(['panel']);
+  });
+
+  it('records the deliberate choice: a tab count that DROPS during the settle window still reports closed', async () => {
+    const rec = recorder();
+    const outcome = await closeSessionTab('s1', tabs(rec, [3, 2], 'panel'));
+
+    expect(outcome).toBe('closed');
   });
 });
 
@@ -138,11 +155,17 @@ describe('vscodeTabs', () => {
     expect(executeCommand).toHaveBeenCalledWith('claude-vscode.editor.open', 's1');
   });
 
-  it('closes through the tab groups API', async () => {
+  it('closes through the tab groups API, and returns exactly what it resolved', async () => {
     const tab = claudeTab();
     const close = vi.spyOn(stubTabGroups, 'close').mockResolvedValue(true);
-    await vscodeTabs().close(tab as unknown as vscode.Tab);
+    await expect(vscodeTabs().close(tab as unknown as vscode.Tab)).resolves.toBe(true);
     expect(close).toHaveBeenCalledWith(tab);
+  });
+
+  it('reports the boolean unchanged when the tab groups API refuses or cancels the close', async () => {
+    const tab = claudeTab();
+    vi.spyOn(stubTabGroups, 'close').mockResolvedValue(false);
+    await expect(vscodeTabs().close(tab as unknown as vscode.Tab)).resolves.toBe(false);
   });
 
   it('settles as soon as the tab model reports a change, without waiting out the ceiling', async () => {

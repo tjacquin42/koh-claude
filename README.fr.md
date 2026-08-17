@@ -23,8 +23,8 @@ le trousseau du système, et les ponts de hooks sont des scripts zsh.
 - **Fermer une conversation** avec l'icône corbeille qui apparaît au survol d'une ligne
   vivante. Elle ferme son onglet Claude Code, ce qui met fin à la conversation et la range
   dans *Fermé récemment*. Quand aucun onglet n'est trouvé — une conversation dans un
-  terminal, ou dans un projet qu'aucune fenêtre n'a ouvert — la ligne est simplement retirée
-  de la liste.
+  terminal, dans l'application de bureau Claude, ou dans un projet qu'aucune fenêtre n'a
+  ouvert — la ligne est simplement retirée de la liste.
 - **Votre consommation** sur cinq heures et sept jours, avec l'échéance de remise à zéro.
 - **Un clic** sur une session ouvre ou reprend sa fenêtre, où qu'elle soit — y compris une
   session fermée.

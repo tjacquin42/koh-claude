@@ -31,17 +31,28 @@ export interface ClaudeTabs<T> {
   reveal(sessionId: string): Promise<void>;
   /** Resolves once the tab model has caught up with the reveal. */
   settled(): Promise<void>;
-  close(tab: T): Promise<void>;
+  /**
+   * Closes `tab`. Resolves to `false` when the close was refused or
+   * cancelled — e.g. a confirmation dialog shown on a dirty tab — in which
+   * case the tab is still open. This is the one signal in `closeSessionTab`
+   * that does not rest on an unverifiable assumption, so it must be trusted:
+   * a caller must never report `closed` when this resolves `false`.
+   */
+  close(tab: T): Promise<boolean>;
 }
 
 /**
- * Closes the tab of one conversation, and says whether it was really there.
+ * Closes the tab of one conversation, and says whether it was really closed.
  *
  * `reveal` is the only way to designate a session's panel — every Claude tab
  * carries the same label — but it CREATES one when it finds none. The count
  * taken before and after is what tells the two apart: it is a count and never
  * the identity of `Tab` objects, which is not guaranteed stable between two
  * reads of `tabGroups.all`.
+ *
+ * `closed` is only ever returned once `close()` itself confirms the tab is
+ * gone — a refused or cancelled close (see `ClaudeTabs.close`) reports
+ * `notFound`, exactly like a tab that was never there.
  */
 export async function closeSessionTab<T>(sessionId: string, tabs: ClaudeTabs<T>): Promise<CloseOutcome> {
   const before = tabs.count();
@@ -61,7 +72,12 @@ export async function closeSessionTab<T>(sessionId: string, tabs: ClaudeTabs<T>)
   // what catches the one assumption no unit test can check — that a revealed
   // panel really becomes the active tab.
   if (active === undefined) return 'notFound';
-  await tabs.close(active);
+  const closed = await tabs.close(active);
+  // The close can be vetoed or cancelled (e.g. a confirmation dialog on a
+  // dirty tab): the tab is still open, and the conversation still running.
+  // Reporting `closed` here would archive it and remove the row over a close
+  // that never happened — the one outcome the whole design exists to avoid.
+  if (!closed) return 'notFound';
   // A tab APPEARED: the session had no panel here, `reveal` created one, and
   // we just closed our own creation. Nothing of the user's was found.
   return after > before ? 'notFound' : 'closed';
@@ -106,8 +122,6 @@ export function vscodeTabs(): ClaudeTabs<vscode.Tab> {
         const timer = setTimeout(done, SETTLE_MS);
         sub = vscode.window.tabGroups.onDidChangeTabs(done);
       }),
-    close: async (tab: vscode.Tab) => {
-      await vscode.window.tabGroups.close(tab);
-    },
+    close: async (tab: vscode.Tab) => vscode.window.tabGroups.close(tab),
   };
 }

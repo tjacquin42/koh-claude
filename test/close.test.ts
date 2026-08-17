@@ -97,6 +97,7 @@ describe('requestCloseSession', () => {
 
     expect(c.routed).toEqual(['s1']);
     expect(c.confirmed).toEqual([]);
+    expect(c.forgotten).toEqual([]);
   });
 
   it('asks first when the conversation is still working, then routes', async () => {
@@ -110,6 +111,7 @@ describe('requestCloseSession', () => {
     const c = calls();
     await requestCloseSession(session({ status: 'waiting' }), requestDeps(c, false));
 
+    expect(c.confirmed).toEqual(['s1']);
     expect(c.routed).toEqual([]);
     expect(c.forgotten).toEqual([]);
   });

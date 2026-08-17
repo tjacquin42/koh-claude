@@ -326,10 +326,22 @@ export class FocusBroker {
           // A close request should never carry a non-editor origin: `closePlan`
           // turns those into a plain forget before any file is written.
           // Honouring one would close a tab in a window where the user asked
-          // for nothing. No message either, unlike focus and reopen: the effect
-          // is already visible on both sides — a tab disappears here, a row
-          // disappears where the click happened.
-          if (closePlan(origin).kind === 'tab') await this.close.closeHere(sessionId);
+          // for nothing. No message on success, unlike focus and reopen: the
+          // effect is already visible on both sides — a tab disappears here, a
+          // row disappears where the click happened.
+          if (closePlan(origin).kind === 'tab') {
+            // A failure here must still be surfaced: the request file is
+            // already unlinked and the clicking window's own fallback has
+            // already found nothing, so silence on both ends would leave the
+            // user with no idea anything went wrong. `catch`, not the outer
+            // `try`/`catch` below — that one exists to keep one bad request
+            // from stopping the whole loop, and would swallow this in total
+            // silence. Same message as the local path (extension.ts,
+            // kohVibe.closeSession).
+            await this.close.closeHere(sessionId).catch(() => {
+              void vscode.window.showErrorMessage(vscode.l10n.t('Koh-Vibe: could not close « {0} ».', label));
+            });
+          }
           continue;
         }
         const isReopen = name.startsWith('reopen-');

@@ -420,4 +420,26 @@ describe('requestClose', () => {
     expect(closeCalls.closeHere).toEqual([]);
     expect(await readdir(dirs.requests)).toEqual([]);
   });
+
+  it('shows an error rather than dying silently when a consumed close request fails to close, and never falls through to the focus path', async () => {
+    const showError = vi.spyOn(vscode.window, 'showErrorMessage').mockResolvedValue(undefined);
+    const executeCommand = vi.spyOn(vscode.commands, 'executeCommand').mockResolvedValue(undefined);
+
+    const other = makeBroker();
+    await other.requestClose(session({ id: 's-cross' }));
+
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
+    const failing = new FocusBroker(dirs, {
+      closeHere: async () => {
+        throw new Error('archive write failed');
+      },
+      forget: async () => undefined,
+    });
+    brokers.push(failing);
+    const internal = failing as unknown as { consume: () => Promise<void> };
+    await internal.consume();
+
+    expect(showError).toHaveBeenCalled();
+    expect(executeCommand).not.toHaveBeenCalled();
+  });
 });
