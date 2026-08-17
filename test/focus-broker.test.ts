@@ -30,8 +30,22 @@ let dirs: SpoolDirs;
 // ici pour être arrêté sans exception dans afterEach.
 let brokers: FocusBroker[];
 
+interface CloseCalls {
+  closeHere: string[];
+  forget: string[];
+}
+
+let closeCalls: CloseCalls;
+
 function makeBroker(): FocusBroker {
-  const b = new FocusBroker(dirs);
+  const b = new FocusBroker(dirs, {
+    closeHere: async (id: string) => {
+      closeCalls.closeHere.push(id);
+    },
+    forget: async (id: string) => {
+      closeCalls.forget.push(id);
+    },
+  });
   brokers.push(b);
   return b;
 }
@@ -55,6 +69,7 @@ beforeEach(async () => {
   setWorkspaceFolders(undefined);
   vi.restoreAllMocks();
   brokers = [];
+  closeCalls = { closeHere: [], forget: [] };
 });
 
 afterEach(() => {
@@ -338,5 +353,93 @@ describe('requestReopen', () => {
     // own flag, rather than inheriting the focus one's silence.
     await broker.requestReopen(entry());
     expect(warn).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('requestClose', () => {
+  it('closes here, without writing any request, when this window holds the folder', async () => {
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
+    const broker = makeBroker();
+
+    await broker.requestClose(session());
+
+    expect(closeCalls.closeHere).toEqual(['s1']);
+    expect(await readdir(dirs.requests)).toEqual([]);
+  });
+
+  it('writes a close request carrying the origin when another window holds the folder', async () => {
+    const broker = makeBroker();
+
+    await broker.requestClose(session());
+
+    const body: unknown = JSON.parse(await readFile(join(dirs.requests, 'close-s1.json'), 'utf8'));
+    expect(body).toMatchObject({ sessionId: 's1', cwd: '/Users/dev/projet', origin: 'vscode' });
+    expect(closeCalls.closeHere).toEqual([]);
+  });
+
+  it('removes the row when no window consumes the request — no window open means no tab to close', async () => {
+    vi.useFakeTimers();
+    try {
+      const broker = makeBroker();
+      await broker.requestClose(session());
+
+      await vi.advanceTimersByTimeAsync(2_000);
+      // The fallback reads, unlinks then forgets, all asynchronously.
+      await vi.waitFor(() => expect(closeCalls.forget).toEqual(['s1']));
+      expect(await readdir(dirs.requests)).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('consumes a close request written for a folder it holds', async () => {
+    const other = makeBroker();
+    await other.requestClose(session({ id: 's-cross' }));
+
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
+    const broker = makeBroker();
+    const internal = broker as unknown as { consume: () => Promise<void> };
+    await internal.consume();
+
+    expect(closeCalls.closeHere).toEqual(['s-cross']);
+    expect(await readdir(dirs.requests)).toEqual([]);
+  });
+
+  it('discards a close request that does not carry an editor origin, and closes nothing', async () => {
+    await writeFile(
+      join(dirs.requests, 'close-s-term.json'),
+      JSON.stringify({ sessionId: 's-term', cwd: '/Users/dev/projet', label: 'projet', origin: 'terminal', at: Date.now() }),
+      'utf8',
+    );
+
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
+    const broker = makeBroker();
+    const internal = broker as unknown as { consume: () => Promise<void> };
+    await internal.consume();
+
+    expect(closeCalls.closeHere).toEqual([]);
+    expect(await readdir(dirs.requests)).toEqual([]);
+  });
+
+  it('shows an error rather than dying silently when a consumed close request fails to close, and never falls through to the focus path', async () => {
+    const showError = vi.spyOn(vscode.window, 'showErrorMessage').mockResolvedValue(undefined);
+    const executeCommand = vi.spyOn(vscode.commands, 'executeCommand').mockResolvedValue(undefined);
+
+    const other = makeBroker();
+    await other.requestClose(session({ id: 's-cross' }));
+
+    setWorkspaceFolders([{ uri: { fsPath: '/Users/dev/projet' } }]);
+    const failing = new FocusBroker(dirs, {
+      closeHere: async () => {
+        throw new Error('archive write failed');
+      },
+      forget: async () => undefined,
+    });
+    brokers.push(failing);
+    const internal = failing as unknown as { consume: () => Promise<void> };
+    await internal.consume();
+
+    expect(showError).toHaveBeenCalled();
+    expect(executeCommand).not.toHaveBeenCalled();
   });
 });

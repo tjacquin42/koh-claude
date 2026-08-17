@@ -1,0 +1,127 @@
+import * as vscode from 'vscode';
+
+export type CloseOutcome = 'closed' | 'notFound';
+
+/**
+ * Ceiling on how long we wait for the tab model to catch up after a reveal.
+ * The model is updated across the extension-host boundary: nothing guarantees
+ * it is current the moment `executeCommand` settles. This is a net, not the
+ * normal path — `settled()` resolves on the first tab change well before it.
+ */
+export const SETTLE_MS = 300;
+
+/**
+ * The window's Claude Code tabs, exactly as `closeSessionTab` needs them.
+ *
+ * An interface rather than direct calls to `vscode.window.tabGroups` so the
+ * SEQUENCE below can be tested without a running editor — the same reason
+ * `requestReopen` is injected into `reopenClosedSession` (closed/reopen.ts).
+ * The adapter over the real API is `vscodeTabs()`, further down this file.
+ *
+ * `T` is the opaque handle of a tab: `vscode.Tab` in production, a string in
+ * the tests. Generic rather than `unknown` so that `close()` cannot be handed
+ * something `activeClaude()` never produced.
+ */
+export interface ClaudeTabs<T> {
+  /** How many Claude Code tabs this window currently holds, all groups included. */
+  count(): number;
+  /** The active tab of the active group, but ONLY if it is a Claude Code tab. */
+  activeClaude(): T | undefined;
+  /** Reveals the panel of `sessionId` — and creates one if it finds none. */
+  reveal(sessionId: string): Promise<void>;
+  /** Resolves once the tab model has caught up with the reveal. */
+  settled(): Promise<void>;
+  /**
+   * Closes `tab`. Resolves to `false` when the close was refused or
+   * cancelled — e.g. a confirmation dialog shown on a dirty tab — in which
+   * case the tab is still open. This is the one signal in `closeSessionTab`
+   * that does not rest on an unverifiable assumption, so it must be trusted:
+   * a caller must never report `closed` when this resolves `false`.
+   */
+  close(tab: T): Promise<boolean>;
+}
+
+/**
+ * Closes the tab of one conversation, and says whether it was really closed.
+ *
+ * `reveal` is the only way to designate a session's panel — every Claude tab
+ * carries the same label — but it CREATES one when it finds none. The count
+ * taken before and after is what tells the two apart: it is a count and never
+ * the identity of `Tab` objects, which is not guaranteed stable between two
+ * reads of `tabGroups.all`.
+ *
+ * `closed` is only ever returned once `close()` itself confirms the tab is
+ * gone — a refused or cancelled close (see `ClaudeTabs.close`) reports
+ * `notFound`, exactly like a tab that was never there.
+ */
+export async function closeSessionTab<T>(sessionId: string, tabs: ClaudeTabs<T>): Promise<CloseOutcome> {
+  const before = tabs.count();
+  try {
+    await tabs.reveal(sessionId);
+  } catch {
+    // The Claude Code extension of this version exposes no such command, so no
+    // tab here can be reached — which is precisely what `notFound` means. No
+    // warning is raised: the caller then removes the row, and that IS the
+    // documented behaviour when no tab is found.
+    return 'notFound';
+  }
+  await tabs.settled();
+  const after = tabs.count();
+  const active = tabs.activeClaude();
+  // Safe degradation: never close a tab we have not identified. This is also
+  // what catches the one assumption no unit test can check — that a revealed
+  // panel really becomes the active tab.
+  if (active === undefined) return 'notFound';
+  const closed = await tabs.close(active);
+  // The close can be vetoed or cancelled (e.g. a confirmation dialog on a
+  // dirty tab): the tab is still open, and the conversation still running.
+  // Reporting `closed` here would archive it and remove the row over a close
+  // that never happened — the one outcome the whole design exists to avoid.
+  if (!closed) return 'notFound';
+  // A tab APPEARED: the session had no panel here, `reveal` created one, and
+  // we just closed our own creation. Nothing of the user's was found.
+  return after > before ? 'notFound' : 'closed';
+}
+
+/**
+ * A Claude Code panel is created as `claudeVSCodePanel`, and VSCode prefixes
+ * that view type on the tab (`mainThreadWebview-claudeVSCodePanel`), hence the
+ * substring test — the very test the Claude Code bundle applies to its own
+ * tabs when it looks for its group.
+ */
+const PANEL_VIEW_TYPE = 'claudeVSCodePanel';
+
+function isClaudeTab(tab: vscode.Tab): boolean {
+  return tab.input instanceof vscode.TabInputWebview && tab.input.viewType.includes(PANEL_VIEW_TYPE);
+}
+
+/** Every Claude Code tab of this window, all groups included. */
+export function claudeTabsOf(groups: readonly vscode.TabGroup[]): vscode.Tab[] {
+  return groups.flatMap((g) => g.tabs.filter(isClaudeTab));
+}
+
+/** The adapter over the real API — the only part of this file that touches VSCode. */
+export function vscodeTabs(): ClaudeTabs<vscode.Tab> {
+  return {
+    count: () => claudeTabsOf(vscode.window.tabGroups.all).length,
+    activeClaude: () => {
+      const active = vscode.window.tabGroups.activeTabGroup.activeTab;
+      return active !== undefined && isClaudeTab(active) ? active : undefined;
+    },
+    reveal: async (sessionId: string) => {
+      await vscode.commands.executeCommand('claude-vscode.editor.open', sessionId);
+    },
+    settled: () =>
+      new Promise<void>((resolve) => {
+        let sub: { dispose: () => void } | undefined;
+        const done = (): void => {
+          sub?.dispose();
+          clearTimeout(timer);
+          resolve();
+        };
+        const timer = setTimeout(done, SETTLE_MS);
+        sub = vscode.window.tabGroups.onDidChangeTabs(done);
+      }),
+    close: async (tab: vscode.Tab) => vscode.window.tabGroups.close(tab),
+  };
+}
