@@ -1,11 +1,12 @@
 import * as vscode from 'vscode';
 import type { Session, Status } from '../events/types';
 import { withStaleness } from '../store/staleness';
-import { sessionDescription, sessionLabel, sessionTooltip, statusLabel } from './labels';
+import { closedDescription, closedTooltip, sessionDescription, sessionLabel, sessionTooltip, statusLabel } from './labels';
 import { emptyGroups, groupIdOf, reorder, sessionOrderOf, type Group, type GroupsState } from '../groups/model';
 import { themeColorOf } from './colors';
 import { decorationUriParts } from './decorations';
 import { statusIconPath } from './status-icon';
+import type { ClosedEntry } from '../closed/model';
 
 export type TreeNode =
   // `group: undefined` désigne « Sans dossier », le reliquat des sessions non
@@ -22,7 +23,12 @@ export type TreeNode =
   // plutôt que d'afficher zéro et de laisser croire à une consommation nulle.
   // `action` distingue « il faut installer les hooks », cliquable, de « rien à
   // afficher », qui ne doit rien déclencher.
-  | { kind: 'empty'; message: string; action?: 'install' };
+  | { kind: 'empty'; message: string; action?: 'install' }
+  // The closed-conversation history and its rows. A member of its own rather
+  // than a `group`: a folder is a drop target and carries the user's settings,
+  // which this section is not.
+  | { kind: 'closedGroup'; entries: readonly ClosedEntry[] }
+  | { kind: 'closedSession'; entry: ClosedEntry };
 
 /**
  * La pastille de chaque statut est un disque, identique pour les cinq : seule
@@ -78,6 +84,10 @@ export function nodeId(node: TreeNode): string {
       return `session:${node.session.id}`;
     case 'spacer':
       return `spacer:${node.after}`;
+    case 'closedGroup':
+      return 'closed';
+    case 'closedSession':
+      return `closed:${node.entry.id}`;
     default:
       return 'empty';
   }
@@ -127,8 +137,8 @@ export function groupIdOfNode(node: unknown): string | undefined {
 function withSpacers(nodes: readonly TreeNode[]): TreeNode[] {
   const out: TreeNode[] = [];
   for (const node of nodes) {
-    if (out.length > 0 && node.kind === 'group') {
-      out.push({ kind: 'spacer', after: node.group?.id ?? 'unfiled' });
+    if (out.length > 0 && (node.kind === 'group' || node.kind === 'closedGroup')) {
+      out.push({ kind: 'spacer', after: node.kind === 'group' ? node.group?.id ?? 'unfiled' : 'closed' });
     }
     out.push(node);
   }
@@ -189,6 +199,17 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
     this.refresh();
   }
 
+  private closed: readonly ClosedEntry[] = [];
+
+  /**
+   * Same principle as `setGroups`: the view displays the closed list, it does
+   * not go and fetch it.
+   */
+  setClosed(entries: readonly ClosedEntry[]): void {
+    this.closed = entries;
+    this.refresh();
+  }
+
   /**
    * Ce que la vue affiche RÉELLEMENT, sous forme comparable.
    *
@@ -208,6 +229,11 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
       ]),
       this.groups.groups,
       this.groups.sessionOrder,
+      // The label too, not just the description: once a re-archive attaches a
+      // title it didn't have before (see closed/model.ts's `remember`), the
+      // label changes but the description can stay the same — without this,
+      // that redraw would be missed.
+      this.visibleClosed().map((e) => [e.id, sessionLabel(e), closedDescription(e, now)]),
     ]);
   }
 
@@ -262,16 +288,34 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
     return this.ordered(sessions, groupId).map((s) => s.id);
   }
 
+  /**
+   * The closed conversations actually shown: an entry whose conversation is
+   * alive again is filtered out here, never deleted from the file — the same
+   * conversation must not appear twice in the view, and if it closes again it
+   * is archived afresh.
+   */
+  private visibleClosed(): ClosedEntry[] {
+    const live = new Set(this.sessions.map((s) => s.id));
+    return this.closed.filter((e) => !live.has(e.id));
+  }
+
+  private closedNode(): TreeNode | undefined {
+    const entries = this.visibleClosed();
+    return entries.length === 0 ? undefined : { kind: 'closedGroup', entries };
+  }
+
   async getChildren(node?: TreeNode): Promise<TreeNode[]> {
     if (node === undefined) {
       if (this.sessions.length === 0) {
+        const closed = this.closedNode();
         const installed = await this.checkHooksInstalled();
-        if (!installed) {
-          return [
-            { kind: 'empty', message: vscode.l10n.t('Hooks not installed — click to install them'), action: 'install' },
-          ];
-        }
-        return [{ kind: 'empty', message: vscode.l10n.t('No active Claude Code session') }];
+        const message: TreeNode = installed
+          ? { kind: 'empty', message: vscode.l10n.t('No active Claude Code session') }
+          : { kind: 'empty', message: vscode.l10n.t('Hooks not installed — click to install them'), action: 'install' };
+        // The section outlives the absence of any live session — that is even
+        // the moment it is most useful. Through withSpacers like every other
+        // path below, so it keeps its separator line here too.
+        return closed === undefined ? [message] : withSpacers([message, closed]);
       }
       const knownIds = new Set(this.groups.groups.map((g) => g.id));
       const byGroup = new Map<string, Session[]>();
@@ -297,9 +341,12 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
       if (unfiled.length > 0) {
         nodes.push({ kind: 'group', group: undefined, sessions: this.ordered(unfiled, undefined) });
       }
+      const closed = this.closedNode();
+      if (closed !== undefined) nodes.push(closed);
       return withSpacers(nodes);
     }
     if (node.kind === 'group') return node.sessions.map((session) => ({ kind: 'session', session }));
+    if (node.kind === 'closedGroup') return node.entries.map((entry) => ({ kind: 'closedSession', entry }));
     return [];
   }
 
@@ -339,6 +386,40 @@ export class SessionsTree implements vscode.TreeDataProvider<TreeNode>, vscode.T
       // « Sans dossier » n'est pas un dossier de l'utilisateur : pas d'id, pas
       // de renommage ni de suppression possibles, donc pas ce contextValue.
       item.contextValue = node.group === undefined ? 'unfiled' : 'group';
+      return item;
+    }
+    if (node.kind === 'closedGroup') {
+      const item = new vscode.TreeItem(vscode.l10n.t('Recently closed'), vscode.TreeItemCollapsibleState.Collapsed);
+      item.id = nodeId(node);
+      item.description =
+        node.entries.length > 1
+          ? vscode.l10n.t('{0} conversations', node.entries.length)
+          : vscode.l10n.t('{0} conversation', node.entries.length);
+      item.iconPath = new vscode.ThemeIcon('archive');
+      item.contextValue = 'closedGroup';
+      return item;
+    }
+    if (node.kind === 'closedSession') {
+      const e = node.entry;
+      const now = Date.now();
+      const item = new vscode.TreeItem(sessionLabel(e), vscode.TreeItemCollapsibleState.None);
+      item.id = nodeId(node);
+      item.description = closedDescription(e, now);
+      item.tooltip = closedTooltip(e, now);
+      // Deliberately distinct from `session`: the existing menus — sounds,
+      // remove from the list, drag and drop — must not apply to a dead
+      // conversation.
+      item.contextValue = 'closedSession';
+      item.accessibilityInformation = { label: `${sessionLabel(e)}, ${closedDescription(e, now)}` };
+      // One glyph for every closed row: they have no status to tell apart, and
+      // a single shape keeps the alignment true by construction — same reason
+      // as the status dots on live sessions.
+      item.iconPath = new vscode.ThemeIcon('history');
+      item.command = {
+        command: 'kohVibe.reopenSession',
+        title: vscode.l10n.t('Reopen this conversation'),
+        arguments: [e],
+      };
       return item;
     }
 

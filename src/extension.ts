@@ -3,7 +3,10 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import { groupsFile, kohVibeHome, legacyHome, settingsFile, spoolDirs } from './paths';
+import { closedFile, groupsFile, kohVibeHome, legacyHome, settingsFile, spoolDirs } from './paths';
+import { readClosed, rememberClosed } from './closed/store';
+import { toClosedEntry, type ClosedEntry } from './closed/model';
+import { reopenClosedSession } from './closed/reopen';
 import { readSettings, seedSettings, writeSettings } from './settings/store';
 import { defaultSettings, type AppSettings } from './settings/model';
 import { migrateLegacyHome } from './store/migrate';
@@ -45,6 +48,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const dirs = spoolDirs(home);
   const groupsPath = groupsFile(home);
   const settingsPath = settingsFile(home);
+  const closedPath = closedFile(home);
   await ensureDirs(dirs);
   if (migrated === 'migrated') {
     void vscode.window.showInformationMessage(
@@ -267,6 +271,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // vaut « classement vide », voir groups/store.ts) : aucune garde de
         // type `*FailureWarned` n'est nécessaire ici.
         const groups = await readGroups(groupsPath);
+        // Re-read on every render, never cached: shared file, another window
+        // may have closed a conversation between two rounds. `readClosed` never
+        // fails (absent or unreadable means "empty list").
+        const closed = await readClosed(closedPath);
         // Le carillon avant l'affichage : `shouldChime` compare l'état du tour
         // précédent au nouveau, et `lastStatuses` doit avancer à CHAQUE rendu,
         // même silencieux — sinon la comparaison se ferait contre un état de
@@ -282,6 +290,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         lastStatuses = statuses;
         tree.setSessions(map);
         tree.setGroups(groups);
+        tree.setClosed(closed.closed);
         status.update(map);
       },
       () => {
@@ -317,6 +326,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void vscode.window.showWarningMessage(
         vscode.l10n.t('Koh-Vibe: reading the events failed — it will be retried.'),
       );
+    },
+    Date.now,
+    // The closed-conversation history. Errors are NOT swallowed here: `drain`
+    // relies on the rejection to leave the event in place and retry it.
+    //
+    // `s` is `current`, read straight off disk by `drain`: `title`, and
+    // `branch` for anything but a worktree path, are never written to
+    // `sessions/<id>.json` — `withTokens` (transcript/tokens.ts) only ever
+    // attaches them to the in-memory Map that `render()` holds here, in
+    // `transcripts`. Without this lookup, every archived conversation would
+    // carry neither, and five closed conversations of the same project would
+    // all show the bare project name.
+    (s) => {
+      const stats = transcripts.get(s.id);
+      const source = { ...s, title: s.title ?? stats?.title, branch: s.branch ?? stats?.branch };
+      return rememberClosed(closedPath, toClosedEntry(source, Date.now())).then(() => undefined);
     },
   );
   watcher.start();
@@ -358,6 +383,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void acknowledgeClickedSession(dirs, s).catch(() => undefined);
       void broker.request(s).catch(() => undefined);
     }),
+    // The three-way decision (terminal / editor tab / explain) is not made
+    // here: reopenClosedSession (closed/reopen.ts) owns it, and is tested
+    // directly, for the same reason acknowledgeVisibleSessions/
+    // acknowledgeClickedSession were pulled out of this file — see
+    // focus/acknowledge.ts.
+    vscode.commands.registerCommand('kohVibe.reopenSession', (entry: ClosedEntry) =>
+      reopenClosedSession(entry, (e) => broker.requestReopen(e)),
+    ),
     vscode.commands.registerCommand('kohVibe.installHooks', () => {
       const terminal = vscode.window.createTerminal('Koh-Vibe');
       terminal.sendText(`node "${installScript}"`);

@@ -2,6 +2,7 @@
   "extension.description": "Toutes vos sessions Claude Code dans une seule vue : statut en direct, dossiers, consommation et carillons.",
   "command.kohVibe.refresh.title": "Rafraîchir",
   "command.kohVibe.focusSession.title": "Aller à la session",
+  "command.kohVibe.reopenSession.title": "Rouvrir la conversation",
   "command.kohVibe.installHooks.title": "Installer les hooks",
   "command.kohVibe.uninstallHooks.title": "Désinstaller les hooks",
   "command.kohVibe.newGroup.title": "Créer un dossier",

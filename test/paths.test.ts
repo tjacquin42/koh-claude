@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupsFile, kohVibeHome, spoolDirs } from '../src/paths';
+import { closedFile, groupsFile, kohVibeHome, spoolDirs } from '../src/paths';
 
 describe('paths', () => {
   it('utilise KOH_VIBE_HOME quand il est posé', () => {
@@ -20,5 +20,9 @@ describe('paths', () => {
 
   it('place le classement en dossiers à la racine de l état', () => {
     expect(groupsFile('/tmp/koh')).toBe('/tmp/koh/groups.json');
+  });
+
+  it('puts the closed list at the root of the koh-vibe home', () => {
+    expect(closedFile('/home/x/.koh-vibe')).toBe('/home/x/.koh-vibe/closed.json');
   });
 });
