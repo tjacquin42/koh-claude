@@ -51,6 +51,7 @@
       { "command": "kohVibe.soundSession.waiting", "title": "%command.kohVibe.soundSession.waiting.title%", "category": "Koh-Vibe" },
       { "command": "kohVibe.soundSession.done", "title": "%command.kohVibe.soundSession.done.title%", "category": "Koh-Vibe" },
       { "command": "kohVibe.forgetSession", "title": "%command.kohVibe.forgetSession.title%", "category": "Koh-Vibe" },
+      { "command": "kohVibe.closeSession", "title": "%command.kohVibe.closeSession.title%", "category": "Koh-Vibe", "icon": "$(trash)" },
       { "command": "kohVibe.refreshUsage", "title": "%command.kohVibe.refreshUsage.title%", "category": "Koh-Vibe" }
     ],
     "keybindings": [
@@ -69,11 +70,13 @@
         { "command": "kohVibe.deleteGroup", "when": "view == kohVibe.sessions && viewItem == group", "group": "zzz@1" },
         { "command": "kohVibe.soundSession.waiting", "when": "view == kohVibe.sessions && viewItem == session", "group": "son@1" },
         { "command": "kohVibe.soundSession.done", "when": "view == kohVibe.sessions && viewItem == session", "group": "son@2" },
-        { "command": "kohVibe.forgetSession", "when": "view == kohVibe.sessions && viewItem == session", "group": "zzz@1" }
+        { "command": "kohVibe.forgetSession", "when": "view == kohVibe.sessions && viewItem == session", "group": "zzz@1" },
+        { "command": "kohVibe.closeSession", "when": "view == kohVibe.sessions && viewItem == session", "group": "inline" }
       ],
       "commandPalette": [
         { "command": "kohVibe.reopenSession", "when": "false" },
-        { "command": "kohVibe.focusSession", "when": "false" }
+        { "command": "kohVibe.focusSession", "when": "false" },
+        { "command": "kohVibe.closeSession", "when": "false" }
       ]
     }
   },
