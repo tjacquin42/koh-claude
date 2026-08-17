@@ -182,6 +182,38 @@ export function createGroup(s: GroupsState, label: string, newId: () => string):
   return { ...s, groups: [...s.groups, { id: newId(), name: clean, order: s.groups.length }] };
 }
 
+/**
+ * Moves folders in front of another one, and renumbers every `order` from
+ * scratch.
+ *
+ * Renumbered wholesale rather than patched: `order` is only ever read through
+ * the sort in `parseGroups`, so what matters is the sequence, not the numbers.
+ * Handing back a dense 0…n-1 run keeps two folders from ever sharing a value
+ * through our own doing, and makes the result of a move readable in the file.
+ *
+ * `beforeId === undefined` means "to the end" — a folder dropped past the last
+ * one. An unknown `beforeId`, or one of the moved folders itself, is treated
+ * the same way rather than refused: the drop already happened as far as the
+ * user is concerned, and dropping the request would be a gesture that silently
+ * did nothing.
+ */
+export function reorderGroups(
+  s: GroupsState,
+  movedIds: readonly string[],
+  beforeId: string | undefined,
+): GroupsState {
+  const moving = new Set(movedIds);
+  // Taken from the state, not from `movedIds`: the caller's order is the order
+  // VSCode reports a multiple selection in, which is not the one on screen.
+  const moved = s.groups.filter((g) => moving.has(g.id));
+  if (moved.length === 0) return s;
+  const rest = s.groups.filter((g) => !moving.has(g.id));
+  const at = beforeId === undefined || moving.has(beforeId) ? -1 : rest.findIndex((g) => g.id === beforeId);
+  const cut = at < 0 ? rest.length : at;
+  const next = [...rest.slice(0, cut), ...moved, ...rest.slice(cut)];
+  return { ...s, groups: next.map((g, order) => ({ ...g, order })) };
+}
+
 export function renameGroup(s: GroupsState, id: string, label: string): GroupsState {
   const clean = name(label);
   if (clean === undefined) throw new Error('Un dossier ne peut pas avoir un nom vide.');

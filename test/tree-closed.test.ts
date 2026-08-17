@@ -7,7 +7,8 @@ import type { ClosedEntry } from '../src/closed/model';
 
 const EXT = '/ext';
 const noopOnDrop = async (): Promise<void> => undefined;
-const make = (): SessionsTree => new SessionsTree(async () => true, noopOnDrop, EXT);
+const noopOnGroupsDropped = async (): Promise<void> => undefined;
+const make = (): SessionsTree => new SessionsTree(async () => true, noopOnDrop, noopOnGroupsDropped, EXT);
 
 const session = (id: string): Session => ({
   id,
