@@ -2,7 +2,7 @@
   "name": "koh-vibe",
   "displayName": "Koh-Vibe",
   "description": "%extension.description%",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "publisher": "tjacquin42",
   "license": "MIT",
   "repository": { "type": "git", "url": "https://github.com/tjacquin42/koh-vibe.git" },
