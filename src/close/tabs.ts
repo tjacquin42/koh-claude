@@ -1,3 +1,5 @@
+import * as vscode from 'vscode';
+
 export type CloseOutcome = 'closed' | 'notFound';
 
 /**
@@ -63,4 +65,49 @@ export async function closeSessionTab<T>(sessionId: string, tabs: ClaudeTabs<T>)
   // A tab APPEARED: the session had no panel here, `reveal` created one, and
   // we just closed our own creation. Nothing of the user's was found.
   return after > before ? 'notFound' : 'closed';
+}
+
+/**
+ * A Claude Code panel is created as `claudeVSCodePanel`, and VSCode prefixes
+ * that view type on the tab (`mainThreadWebview-claudeVSCodePanel`), hence the
+ * substring test — the very test the Claude Code bundle applies to its own
+ * tabs when it looks for its group.
+ */
+const PANEL_VIEW_TYPE = 'claudeVSCodePanel';
+
+function isClaudeTab(tab: vscode.Tab): boolean {
+  return tab.input instanceof vscode.TabInputWebview && tab.input.viewType.includes(PANEL_VIEW_TYPE);
+}
+
+/** Every Claude Code tab of this window, all groups included. */
+export function claudeTabsOf(groups: readonly vscode.TabGroup[]): vscode.Tab[] {
+  return groups.flatMap((g) => g.tabs.filter(isClaudeTab));
+}
+
+/** The adapter over the real API — the only part of this file that touches VSCode. */
+export function vscodeTabs(): ClaudeTabs<vscode.Tab> {
+  return {
+    count: () => claudeTabsOf(vscode.window.tabGroups.all).length,
+    activeClaude: () => {
+      const active = vscode.window.tabGroups.activeTabGroup.activeTab;
+      return active !== undefined && isClaudeTab(active) ? active : undefined;
+    },
+    reveal: async (sessionId: string) => {
+      await vscode.commands.executeCommand('claude-vscode.editor.open', sessionId);
+    },
+    settled: () =>
+      new Promise<void>((resolve) => {
+        let sub: { dispose: () => void } | undefined;
+        const done = (): void => {
+          sub?.dispose();
+          clearTimeout(timer);
+          resolve();
+        };
+        const timer = setTimeout(done, SETTLE_MS);
+        sub = vscode.window.tabGroups.onDidChangeTabs(done);
+      }),
+    close: async (tab: vscode.Tab) => {
+      await vscode.window.tabGroups.close(tab);
+    },
+  };
 }

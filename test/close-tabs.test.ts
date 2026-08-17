@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest';
-import { closeSessionTab, type ClaudeTabs } from '../src/close/tabs';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as vscode from 'vscode';
+import { claudeTabsOf, closeSessionTab, SETTLE_MS, vscodeTabs, type ClaudeTabs } from '../src/close/tabs';
+import { stubTabGroups, tabChange, TabInputWebview, type StubTab } from './stubs/vscode';
 
 interface Recorder {
   log: string[];
@@ -88,5 +90,86 @@ describe('closeSessionTab', () => {
     await closeSessionTab('s1', tabs(rec, [2, 2], 'panel'));
 
     expect(rec.log).toEqual(['count', 'reveal', 'settled', 'count', 'activeClaude', 'close']);
+  });
+});
+
+const claudeTab = (): StubTab => ({ input: new TabInputWebview('mainThreadWebview-claudeVSCodePanel') });
+const otherTab = (): StubTab => ({ input: new TabInputWebview('mainThreadWebview-markdown.preview') });
+
+describe('vscodeTabs', () => {
+  beforeEach(() => {
+    stubTabGroups.all = [];
+    stubTabGroups.activeTabGroup = { tabs: [], activeTab: undefined };
+    vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('counts the Claude Code tabs of every group, and ignores the others', () => {
+    const a = claudeTab();
+    const b = claudeTab();
+    stubTabGroups.all = [
+      { tabs: [a, otherTab()], activeTab: a },
+      { tabs: [b], activeTab: b },
+    ];
+
+    expect(claudeTabsOf(stubTabGroups.all as unknown as readonly vscode.TabGroup[]).length).toBe(2);
+    expect(vscodeTabs().count()).toBe(2);
+  });
+
+  it('offers the active tab only when it is a Claude Code one', () => {
+    const claude = claudeTab();
+    stubTabGroups.activeTabGroup = { tabs: [claude], activeTab: claude };
+    expect(vscodeTabs().activeClaude()).toBe(claude);
+
+    const other = otherTab();
+    stubTabGroups.activeTabGroup = { tabs: [other], activeTab: other };
+    expect(vscodeTabs().activeClaude()).toBeUndefined();
+
+    stubTabGroups.activeTabGroup = { tabs: [], activeTab: undefined };
+    expect(vscodeTabs().activeClaude()).toBeUndefined();
+  });
+
+  it('reveals a panel through the Claude Code command, with the session id', async () => {
+    const executeCommand = vi.spyOn(vscode.commands, 'executeCommand').mockResolvedValue(undefined);
+    await vscodeTabs().reveal('s1');
+    expect(executeCommand).toHaveBeenCalledWith('claude-vscode.editor.open', 's1');
+  });
+
+  it('closes through the tab groups API', async () => {
+    const tab = claudeTab();
+    const close = vi.spyOn(stubTabGroups, 'close').mockResolvedValue(true);
+    await vscodeTabs().close(tab as unknown as vscode.Tab);
+    expect(close).toHaveBeenCalledWith(tab);
+  });
+
+  it('settles as soon as the tab model reports a change, without waiting out the ceiling', async () => {
+    vi.useFakeTimers();
+    let settled = false;
+    const pending = vscodeTabs()
+      .settled()
+      .then(() => {
+        settled = true;
+      });
+
+    tabChange.fire();
+    await pending;
+    expect(settled).toBe(true);
+  });
+
+  it('settles anyway when no tab change is ever reported', async () => {
+    vi.useFakeTimers();
+    let settled = false;
+    const pending = vscodeTabs()
+      .settled()
+      .then(() => {
+        settled = true;
+      });
+
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    await pending;
+    expect(settled).toBe(true);
   });
 });
