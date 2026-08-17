@@ -9,6 +9,7 @@ import type { ClosedEntry } from '../closed/model';
 import { claims } from './claims';
 import { focusPlan, focusPlanFor, type FocusPlan } from './plan';
 import { reopenPlan } from '../closed/reopen';
+import { closePlan } from '../close/plan';
 import { sessionLabel } from '../ui/labels';
 import { GUARD_TIMEOUT_MS, ReentrantGuard } from '../lib/reentrant-guard';
 
@@ -17,6 +18,18 @@ import { GUARD_TIMEOUT_MS, ReentrantGuard } from '../lib/reentrant-guard';
 // événement fs.watch sans rapport), ce qui ferait sauter une fenêtre au
 // premier plan sans que l'utilisateur ait rien cliqué.
 const STALE_REQUEST_MS = 30_000;
+
+/**
+ * What the broker cannot do by itself. It knows nothing of the spool, of the
+ * closed-conversation history or of the folder layout — `extension.ts` hands
+ * it these two, exactly as it hands `SpoolWatcher` its `archive` callback.
+ */
+export interface CloseHandlers {
+  /** Closes the tab here, then archives and removes the row per the outcome. */
+  closeHere: (sessionId: string) => Promise<void>;
+  /** Removes the row, closing nothing and archiving nothing. */
+  forget: (sessionId: string) => Promise<void>;
+}
 
 export class FocusBroker {
   private watcher: FSWatcher | undefined;
@@ -38,7 +51,10 @@ export class FocusBroker {
   // traitement qu'`appendLocalEvent` (spool/watcher.ts).
   private requestSeq = 0;
 
-  constructor(private readonly dirs: SpoolDirs) {}
+  constructor(
+    private readonly dirs: SpoolDirs,
+    private readonly close: CloseHandlers,
+  ) {}
 
   private folders(): string[] {
     return (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
@@ -158,6 +174,53 @@ export class FocusBroker {
     this.fallbacks.set(name, timer);
   }
 
+  /**
+   * Asks for a conversation's tab to be closed.
+   *
+   * Only the window that holds the project can do it: a tab lives in one
+   * window, and `claude-vscode.editor.open` — the sole way to designate a
+   * session's panel — would CREATE one anywhere else.
+   *
+   * The caller has already ruled out every non-editor origin and asked for
+   * confirmation where it was due (`requestCloseSession`, close/close.ts).
+   */
+  async requestClose(s: Session): Promise<void> {
+    if (claims(this.folders(), s.cwd)) {
+      await this.close.closeHere(s.id);
+      return;
+    }
+    const seq = (this.requestSeq += 1);
+    const name = join(this.dirs.requests, `close-${s.id}.json`);
+    const tmp = join(this.dirs.requests, `.tmp-close-${s.id}-${process.pid}-${seq}`);
+    const body = JSON.stringify({
+      sessionId: s.id,
+      cwd: s.cwd,
+      label: sessionLabel(s),
+      origin: s.origin,
+      at: Date.now(),
+    });
+    await writeFile(tmp, body, 'utf8');
+    await rename(tmp, name);
+
+    const existing = this.fallbacks.get(name);
+    if (existing !== undefined) clearTimeout(existing);
+    // Fallback different from both others: no `code -r` (opening a window to
+    // close a tab in it makes no sense) and no message. Nobody consumed the
+    // request, so no window holds the project, so no tab can exist — which is
+    // exactly the "no tab found" case, and its rule is to remove the row.
+    const timer = setTimeout(() => {
+      this.fallbacks.delete(name);
+      void readFile(name, 'utf8').then(
+        async () => {
+          await unlink(name).catch(() => undefined);
+          await this.close.forget(s.id).catch(() => undefined);
+        },
+        () => undefined, // consommée : rien à faire
+      );
+    }, 2_000);
+    this.fallbacks.set(name, timer);
+  }
+
   private async focusSession(plan: FocusPlan, gesture: 'focus' | 'reopen'): Promise<void> {
     if (plan.kind === 'explain') {
       void vscode.window.showInformationMessage(plan.message);
@@ -233,7 +296,9 @@ export class FocusBroker {
     }
     const folders = this.folders();
     const now = Date.now();
-    for (const name of names.filter((n) => n.startsWith('focus-') || n.startsWith('reopen-'))) {
+    for (const name of names.filter(
+      (n) => n.startsWith('focus-') || n.startsWith('reopen-') || n.startsWith('close-'),
+    )) {
       const path = join(this.dirs.requests, name);
       try {
         const parsed: unknown = JSON.parse(await readFile(path, 'utf8'));
@@ -257,6 +322,28 @@ export class FocusBroker {
         // already proven to be a `string` earlier in the loop — otherwise the
         // request would have been ignored before reaching here.
         const origin = (parsed as { origin?: unknown }).origin;
+        if (name.startsWith('close-')) {
+          // A close request should never carry a non-editor origin: `closePlan`
+          // turns those into a plain forget before any file is written.
+          // Honouring one would close a tab in a window where the user asked
+          // for nothing. No message on success, unlike focus and reopen: the
+          // effect is already visible on both sides — a tab disappears here, a
+          // row disappears where the click happened.
+          if (closePlan(origin).kind === 'tab') {
+            // A failure here must still be surfaced: the request file is
+            // already unlinked and the clicking window's own fallback has
+            // already found nothing, so silence on both ends would leave the
+            // user with no idea anything went wrong. `catch`, not the outer
+            // `try`/`catch` below — that one exists to keep one bad request
+            // from stopping the whole loop, and would swallow this in total
+            // silence. Same message as the local path (extension.ts,
+            // kohVibe.closeSession).
+            await this.close.closeHere(sessionId).catch(() => {
+              void vscode.window.showErrorMessage(vscode.l10n.t('Koh-Vibe: could not close « {0} ».', label));
+            });
+          }
+          continue;
+        }
         const isReopen = name.startsWith('reopen-');
         const plan = isReopen ? reopenPlan(origin, sessionId, cwd, label) : focusPlan(sessionId, origin, label);
         if (plan.kind === 'terminal') {

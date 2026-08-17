@@ -20,8 +20,10 @@
   "command.kohVibe.soundSession.waiting.title": "Conversation sound when it waits for you",
   "command.kohVibe.soundSession.done.title": "Conversation sound when it finishes",
   "command.kohVibe.forgetSession.title": "Remove from the list",
+  "command.kohVibe.closeSession.title": "Close conversation",
   "command.kohVibe.refreshUsage.title": "Refresh usage",
   "view.kohVibe.sessions.name": "Sessions",
+  "view.kohVibe.closed.name": "Recently closed",
   "view.kohVibe.usage.name": "Usage",
   "view.kohVibe.settings.name": "Settings"
 }

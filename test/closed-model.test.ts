@@ -29,7 +29,13 @@ describe('remember', () => {
     let s = emptyClosed();
     for (let i = 0; i < MAX_CLOSED + 3; i++) s = remember(s, entry(`s${i}`, i));
     expect(s.closed).toHaveLength(MAX_CLOSED);
-    expect(s.closed.map((e) => e.id)).toEqual(['s7', 's6', 's5', 's4', 's3']);
+    // Derived from the cap, never spelled out: three of the oldest are dropped,
+    // and what remains runs newest first. Written by hand, this assertion had to
+    // be rewritten the day the cap moved — and a test that must be edited to keep
+    // passing stops being a check on the code.
+    expect(s.closed.map((e) => e.id)).toEqual(
+      Array.from({ length: MAX_CLOSED }, (_, k) => `s${MAX_CLOSED + 2 - k}`),
+    );
   });
 
   it('never lists the same conversation twice, keeping the most recent close', () => {
